@@ -1,12 +1,17 @@
+from copy import deepcopy
 from json import loads
-import re
+from random import choice
 from random import shuffle
+import re
 from tabulate import tabulate
 
 
-# TODO IMPLEMENT MONSTER EXECUTION. NEED TO DEFINE ACTION POINTS FOR EACH MONSTER
+# TODO NEED TO MAKE OBJECT_POS TRACKING MORE GENERAL SINCE MULTIPLE ENEMIES OF THE SAME TYPE CAN EXIST ON THE GRID
+# TODO AT THE SAME TIME
 class DiceAdventure:
     def __init__(self, level=1, render=False, num_repeats=0):
+        # Game config
+        self.config = loads(open("config.json", "r").read())
         # Level vars
         self.levels = {}
         self.get_levels()
@@ -14,21 +19,23 @@ class DiceAdventure:
         self.curr_level_num = level
         self.num_repeats = num_repeats
         self.lvl_repeats = {lvl: self.num_repeats for lvl in self.levels}
-        self.empty = ".."
-        self.tower = "**"
-        self.wall = "##"
+        self.empty = self.config["SPECIAL_CHARACTERS"]["EMPTY_SPACE"]
+        self.tower = self.config["SPECIAL_CHARACTERS"]["TOWER"]
+        self.wall = self.config["SPECIAL_CHARACTERS"]["WALL"]
+        self.enemy_regexes = self.config["SPECIAL_CHARACTERS"]["ENEMY_REGEXES"]
         # Game phase vars
-        self.phases = ["pin_planning", "action_planning", "execute_plan", "enemy_execution"]
+        self.phases = self.config["PHASES"]
         self.phase_num = 0
-        self.dice_nums = loads(open("dice_adventure/dice_roll_config.json", "r").read())
+        self.dice_rolls = self.config["DICE_ROLLS"]
         self.respawn_wait = 2
         # Rendering
         self.render_game = render
         # Actions and Types
-        self.valid_pin_types = ["PA", "PB", "PC", "PD"]
-        self.valid_pin_actions = ["left", "right", "up", "down", "submit"]
-        self.valid_move_actions = ["left", "right", "up", "down", "wait", "submit"]
-        self.reverse_actions = {"left": "right", "right": "left", "up": "down", "down": "up", "wait": "wait"}
+        self.valid_pin_types = self.config["ACTIONS"]["VALID_PIN_TYPES"]
+        self.directions = self.config["ACTIONS"]["DIRECTIONS"]
+        self.valid_pin_actions = self.config["ACTIONS"]["VALID_PIN_ACTIONS"]
+        self.valid_move_actions = self.config["ACTIONS"]["VALID_MOVE_ACTIONS"]
+        self.reverse_actions = self.config["ACTIONS"]["REVERSE_ACTIONS"]
         # Setup init values
         self.object_pos = self.get_object_locations()
         self.players = self.get_init_player_info()
@@ -43,41 +50,26 @@ class DiceAdventure:
         :return: Dict
         """
         # 2 * Sight_Range + 1
-        piv = {
-            "1S": {"name": "Human", "type": "human", "action_points": 6, "max_points": 6, "health": 3, "sight_range": 3},
-            "2S": {"name": "Dwarf", "type": "dwarf", "action_points": 6, "max_points": 6, "health": 3, "sight_range": 3},
-            "3S": {"name": "Giant", "type": "giant", "action_points": 6, "max_points": 6, "health": 3, "sight_range": 3}
-        }
-        piv["1S"].update(get_player_init_values(self.object_pos["1S"]["x"],
-                                                self.object_pos["1S"]["y"],
-                                                self.respawn_wait))
-        piv["2S"].update(get_player_init_values(self.object_pos["2S"]["x"],
-                                                self.object_pos["2S"]["y"],
-                                                self.respawn_wait))
-        piv["3S"].update(get_player_init_values(self.object_pos["3S"]["x"],
-                                                self.object_pos["3S"]["y"],
-                                                self.respawn_wait))
+        # piv = player initial values
+        piv = {}
+        for player in ["1S", "2S", "3S"]:
+            piv[player] = deepcopy(self.config["PLAYER_INIT_VALUES"][player])
+            piv[player].update(self.get_player_init_values(self.object_pos[player]["x"],
+                                                           self.object_pos[player]["y"],
+                                                           self.respawn_wait))
         return piv
 
-    def get_static_object_info(self):
-        """
-        Gets common values for game objects.
-        :return:
-        """
-        return {
-            r"\dG": {"name": "", "type": "goal"},
-            r"\dM": {"name": "Monster", "type": "monster"},
-            r"\dT": {"name": "Trap", "type": "trap"},
-            r"S\d": {"name": "Stone", "type": "stone"},
-            self.wall: {"name": "Wall", "type": "wall"},
-            self.empty: {"name": "Empty Space", "type": "empty_space"},
-            self.tower: {"name": "Tower", "type": "goal"}
-        }
+    def get_player_init_values(self, pos_x, pos_y, respawn_wait_time):
+        common = deepcopy(self.config["PLAYER_INIT_VALUES"]["COMMON"])
+        common["start_x"] = pos_x
+        common["start_y"] = pos_y
+        common["respawn_counter"] = respawn_wait_time
+        return common
 
     def get_levels(self):
-        level_config = loads(open("dice_adventure/level_config.json", "r").read())
+        levels = deepcopy(self.config["LEVELS"])
         self.levels = {int(k): [[row[i:i + 2] for i in range(0, len(row), 2)] for row in v.strip().split("\n")]
-                       for k, v in level_config.items()}
+                       for k, v in levels.items()}
 
     def next_level(self):
         """
@@ -115,7 +107,7 @@ class DiceAdventure:
             },
             "scene": []
         }
-        obj_info = self.get_static_object_info()
+        obj_info = self.config["OBJECT_INFO"].copy()
         for i in range(len(self.curr_level)):
             for j in range(len(self.curr_level[0])):
                 info = {}
@@ -214,20 +206,32 @@ class DiceAdventure:
             # No-op/invalid action
             else:
                 return
+        # If user specified no pin, there is nothing further they can do during this phase
+        elif self.players[player]["pin_type"] != "no-pin":
+            curr_x = int(self.players[player]["pin_path_x"])
+            curr_y = int(self.players[player]["pin_path_y"])
+            valid_actions = [i[0]
+                           for i in [[d] + list(self.update_location_by_direction(d, curr_x, curr_y))
+                                     for d in self.directions]
+                           if curr_x != i[1] or curr_y != i[2]]
+            valid_actions.extend(["submit"])
 
-        elif action in self.valid_pin_actions:
-            # If player has clicked submit or are out of action points, they cannot continue at this time
-            if (self.players[player]["pin_plan"] and self.players[player]["pin_plan"][-1] == "submit") \
-                    or self.players[player]["action_points"] <= 0:
-                # No-op
-                return
+            if action in valid_actions:
+                # If player has clicked submit or are out of action points, they cannot continue at this time
+                if (self.players[player]["pin_plan"] and self.players[player]["pin_plan"][-1] == "submit") \
+                        or self.players[player]["action_points"] <= 0:
+                    # No-op
+                    return
+                else:
+                    self.players[player]["pin_plan"].append(action)
+                    self.update_plan_location(player, action, "pin_path")
+                    if action == "submit":
+                        self.players[player]["action_points"] -= 1
+            # No-op/invalid action
             else:
-                self.players[player]["pin_plan"].append(action)
-                self.update_plan_location(player, action, "pin_path")
-                if action == "submit":
-                    self.players[player]["action_points"] -= 1
-        # No-op/invalid action
+                return
         else:
+            # No-op/invalid action
             return
 
         self.check_phase()
@@ -239,11 +243,30 @@ class DiceAdventure:
         :param action: The action to apply
         :return: N/A
         """
-        if action in self.valid_move_actions:
-            if (self.players[player]["action_plan"] and self.players[player]["action_plan"][-1] == "submit") \
-                    or self.players[player]["action_points"] <= 0:
+        # Set init values of action plan
+        if self.players[player]["action_path_x"] is None or self.players[player]["action_path_y"] is None:
+            self.players[player]["action_path_x"] = int(self.object_pos[player]["x"])
+            self.players[player]["action_path_y"] = int(self.object_pos[player]["y"])
+
+        curr_x = int(self.players[player]["action_path_x"])
+        curr_y = int(self.players[player]["action_path_y"])
+        valid_moves = [i[0]
+                       for i in [[d] + list(self.update_location_by_direction(d, curr_x, curr_y))
+                                 for d in self.directions]
+                       if curr_x != i[1] or curr_y != i[2]]
+        valid_moves.extend(["wait", "submit"])
+
+        if action in valid_moves:
+            if self.players[player]["action_plan"] and self.players[player]["action_plan"][-1] == "submit":
                 # No-op
                 return
+            # Allow player to hit submit after action points have been exhausted
+            elif self.players[player]["action_points"] <= 0:
+                if action == "submit":
+                    self.players[player]["action_plan"].append(action)
+                else:
+                    # No-op
+                    return
             else:
                 self.players[player]["action_plan"].append(action)
                 self.update_plan_location(player, action, "action_path")
@@ -261,6 +284,7 @@ class DiceAdventure:
         curr_phase = self.phases[self.phase_num]
         # Need to end pinning phase, place pins, and begin planning phase
         if curr_phase == "pin_planning" and all(["submit" in self.players[p]["pin_plan"] for p in self.players]):
+
             for p in self.players:
                 # If player has not decided to pin, pin type will be 'no-pin'
                 if self.players[p]["pin_type"] != "no-pin":
@@ -300,31 +324,38 @@ class DiceAdventure:
                     self.players[p]["pin_type"] = None
                 self.update_phase()
 
-
     def update_phase(self):
         """
         Moves the game to the next phase.
         :return: N/A
         """
         self.phase_num = (self.phase_num + 1) % len(self.phases)
+        # Trigger enemy movement
+        if self.phases[self.phase_num] == "enemy_execution":
+            self.execute_enemy_plans()
 
     def execute_plans(self):
         """
         Executes plans for each player by iterating over team until no actions remain in their plans.
         :return: N/A
         """
-        while True:
-            found = False
+        # Number of player moves is length of action plan minus 1 (ignoring final submit action)
+        player_moves = {p: len(self.players[p]["action_plan"]) - 1
+                        for p in self.players}
+        max_moves = max(list(player_moves.values()))
+
+        for i in range(max_moves):
             for p in self.players:
                 # Remove 'submit' action from plan
                 if "submit" in self.players[p]["action_plan"]:
                     self.players[p]["action_plan"].remove("submit")
-                # If player is alive and has a move in its action plan
-                if self.players[p]["action_plan"] and self.players[p]["status"] == "alive":
-                    found = True
+                # If player is alive and has another move in its action plan
+                if self.players[p]["status"] == "alive" and i < player_moves[p]:
                     # Get action to make and move
-                    action = self.players[p]["action_plan"].pop(0)
+                    # action = self.players[p]["action_plan"][self.players[p]["action_plan_step"]]
+                    action = self.players[p]["action_plan"][i]
                     self.move(p, action)
+                    self.players[p]["action_plan_step"] += 1
 
                     # Check if player has reached goal
                     goal = p[0]+"G"
@@ -340,13 +371,31 @@ class DiceAdventure:
                     # Render result of moves
                     if self.render_game:
                         self.render()
-            # No moves were taken for any characters
-            if not found:
-                break
             # CHECK IF PLAYER AND MONSTER/TRAP/STONE IN SAME AREA AFTER
             # EACH PASS OF EACH CHARACTER MOVES
             self.check_combat()
         return None
+
+    def execute_enemy_plans(self):
+        """
+        Executes plans for enemy monsters by iterating over enemy team until no actions remain in their plans.
+        :return: N/A
+        """
+        monsters = [i for i in self.object_pos if re.match(self.enemy_regexes["monster"], i)]
+        moves = self.config["OBJECT_INFO"][self.enemy_regexes["monster"]]["moves"]
+        max_moves = max(list(moves.values()))
+
+        for i in range(1, max_moves + 1):
+            for m in monsters:
+                # Monster can move on this turn
+                if i <= moves[m[0]]:
+                    self.move_monster(m)
+            # Check to see if com at needs to be initiated
+            self.check_combat()
+            # Render result of moves
+            if self.render_game:
+                self.render()
+        self.update_phase()
 
     def undo(self, p):
         """
@@ -384,19 +433,18 @@ class DiceAdventure:
         if x is None or y is None:
             # If multiple players end up on the same grid square, using a set will ensure spot is only checked once
             # for combat
-            player_locs = set([(self.object_pos[p]["x"], self.object_pos[p]["y"])
-                               for p in self.players])
+            player_loc = set([(self.object_pos[p]["x"], self.object_pos[p]["y"])
+                              for p in self.players])
         else:
-            player_locs = [(x, y)]
+            player_loc = [(x, y)]
 
-        for loc in player_locs:
+        for loc in player_loc:
             players = re.findall(r"\dS", self.curr_level[loc[0]][loc[1]])
             if not players:
                 return
 
-            enemy_regexes = [(r"M\d", "monster"), (r"T\d", "trap"), (r"S\d", "stone")]
-            for er in enemy_regexes:
-                self.combat(players, er[0], er[1], loc[0], loc[1])
+            for e, rgx in self.enemy_regexes.items():
+                self.combat(players, rgx, e, loc[0], loc[1])
 
     def combat(self, players, enemy_regex, enemy_type, x, y):
         """
@@ -422,10 +470,16 @@ class DiceAdventure:
                     if enemy_type == "monster":
                         # Lose a heart
                         self.players[p]["health"] -= 1
-                        # Go back a step
+                        # Go back a step (if player has moved)
                         prev_action_step = self.players[p]["action_plan_step"] - 1
-                        prev_action = self.players[p]["action_plan"][prev_action_step]
-                        self.move(p, self.reverse_actions[prev_action])
+                        print(self.players[p])
+                        print(self.phases[self.phase_num])
+                        print(prev_action_step)
+                        print(self.players[p]["action_plan"])
+                        # Only have character take a step back if it has moved
+                        if prev_action_step > 0 and self.phases[self.phase_num] != "enemy_execution":
+                            prev_action = self.players[p]["action_plan"][prev_action_step]
+                            self.move(p, self.reverse_actions[prev_action])
                         # Truncate action plan
                         self.players[p]["action_plan"] = []
                         self.players[p]["action_plan_step"] = 0
@@ -448,9 +502,9 @@ class DiceAdventure:
 
     def get_die_roll(self, char, enemy_type=None):
         if enemy_type:
-            val = choice(range(self.dice_nums[char][enemy_type]["val"])) + self.dice_nums[char][enemy_type]["const"]
+            val = choice(range(self.dice_rolls[char][enemy_type]["val"])) + self.dice_rolls[char][enemy_type]["const"]
         else:
-            val = choice(range(self.dice_nums[char]["val"])) + self.dice_nums[char]["const"]
+            val = choice(range(self.dice_rolls[char]["val"])) + self.dice_rolls[char]["const"]
         return val
 
     ##########################
@@ -477,17 +531,9 @@ class DiceAdventure:
             y = self.object_pos[player]["y"]
             old_pos = (x, y)
 
-            if action == "left" and self.check_valid_move(x, y-1):
-                y -= 1
-            elif action == "right" and self.check_valid_move(x, y+1):
-                y += 1
-            elif action == "up" and self.check_valid_move(x-1, y):
-                x -= 1
-            elif action == "down" and self.check_valid_move(x+1, y):
-                x += 1
+            x, y = self.update_location_by_direction(action, x, y)
 
         self.place(player, x, y, old_x=old_pos[0], old_y=old_pos[1])
-        self.players[player]["action_plan_step"] += 1
 
     def place(self, obj, x, y, old_x=None, old_y=None):
         """
@@ -537,45 +583,16 @@ class DiceAdventure:
                 return True
         return False
 
-    def execute_enemy_plans(self):
-        """
-        Executes plans for enemy monsters by iterating over enemy team until no actions remain in their plans.
-        :return: N/A
-        """
-        while True:
-            found = False
-            for p in self.players:
-                # Remove 'submit' action from plan
-                if "submit" in self.players[p]["action_plan"]:
-                    self.players[p]["action_plan"].remove("submit")
-                # If player is alive and has a move in its action plan
-                if self.players[p]["action_plan"] and self.players[p]["status"] == "alive":
-                    found = True
-                    # Get action to make and move
-                    action = self.players[p]["action_plan"].pop(0)
-                    self.move(p, action)
-
-                    # Check if player has reached goal
-                    goal = p[0] + "G"
-                    if not self.players[p]["goal_reached"] and self.at(p, goal):
-                        # Indicate goal reached
-                        self.players[p]["goal_reached"] = True
-                        # Destroy goal
-                        self.remove(goal)
-                    # Check if player has reached tower
-                    if self.at(p, self.tower) and all([self.players[i]["goal_reached"] for i in self.players]):
-                        self.next_level()
-                        return "next_level"
-                    # Render result of moves
-                    if self.render_game:
-                        self.render()
-            # No moves were taken for any characters
-            if not found:
-                break
-            # CHECK IF PLAYER AND MONSTER/TRAP/STONE IN SAME AREA AFTER
-            # EACH PASS OF EACH CHARACTER MOVES
-            self.check_combat()
-        return None
+    def update_location_by_direction(self, action, x, y):
+        if action == "left" and self.check_valid_move(x, y - 1):
+            y -= 1
+        elif action == "right" and self.check_valid_move(x, y + 1):
+            y += 1
+        elif action == "up" and self.check_valid_move(x - 1, y):
+            x -= 1
+        elif action == "down" and self.check_valid_move(x + 1, y):
+            x += 1
+        return x, y
 
     def move_monster(self, m):
         """
@@ -649,14 +666,8 @@ class DiceAdventure:
         """
         x = int(self.players[player][f"{plan}_x"])
         y = int(self.players[player][f"{plan}_y"])
-        if action == "left" and self.check_valid_move(x, y-1):
-            y -= 1
-        elif action == "right" and self.check_valid_move(x, y+1):
-            y += 1
-        elif action == "up" and self.check_valid_move(x-1, y):
-            x -= 1
-        elif action == "down" and self.check_valid_move(x+1, y):
-            x += 1
+
+        x, y = self.update_location_by_direction(action, x, y)
 
         self.players[player][f"{plan}_x"] = x
         self.players[player][f"{plan}_y"] = y
@@ -685,20 +696,28 @@ class DiceAdventure:
         :return: N/A
         """
         print(tabulate(self.curr_level, tablefmt="grid"))
-        """
-        max_num_chars = max([self.curr_level[i][j]
-                             for i in self.curr_level
-                             for j in self.curr_level[i]])
-        if max_num_chars > 2:
-            num_chars_per_line = int(np.sqrt(max_num_chars))
-        else:
-            num_chars_per_line = max_num_chars
-        """
 
-def get_player_init_values(pos_x, pos_y, respawn_wait_time):
-    return {
-        "status": "alive", "start_x": pos_x, "start_y": pos_y, "respawn_counter": respawn_wait_time,
-        "goal_reached": False,
-        "action_plan": [], "action_plan_step": 0, "action_path_x": pos_x, "action_path_y": pos_y,
-        "pin_plan": [], "pin_type": None, "pin_x": None, "pin_y": None, "pin_path_x": None, "pin_path_y": None
-    }
+
+class Player:
+    def __init__(self, id_, spec_values):
+        self.id = id_
+        self.name = spec_values["name"]
+        self.type = spec_values["type"]
+        self.action_points = spec_values["action_points"]
+        self.max_points = spec_values["max_points"]
+        self.health = spec_values["health"]
+        self.sight_range = spec_values["sight_range"]
+        self.status = "alive"
+        self.start_x = None
+        self.start_y = None
+        self.respawn_counter = None
+        self.goal_reached = False
+        self.action_plan = []
+        self.action_plan_step = 0
+        self.action_path_x = None
+        self.action_path_y = None
+        self.pin_plan = []
+        self.pin_x = None
+        self.pin_y = None
+        self.pin_path_x = None
+        self.pin_path_y = None

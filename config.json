@@ -1,0 +1,52 @@
+{
+  "ACTIONS": {
+	"DIRECTIONS": ["left", "right", "up", "down"],
+	"REVERSE_ACTIONS": {"left": "right", "right": "left", "up": "down", "down": "up", "wait": "wait"},
+	"VALID_PIN_ACTIONS": ["left", "right", "up", "down", "submit"],
+	"VALID_PIN_TYPES": ["PA", "PB", "PC", "PD"],
+	"VALID_MOVE_ACTIONS": ["left", "right", "up", "down", "wait", "submit"]
+  },
+  "DICE_ROLLS": {
+	"1S": {"monster": {"val": 8, "const": 0}, "trap": {"val": 6, "const": 0}, "stone": {"val": 6, "const": 0}},
+	"2S": {"monster": {"val": 6, "const": 0}, "trap": {"val": 8, "const": 0}, "stone": {"val": 4, "const": 0}},
+	"3S": {"monster": {"val": 6, "const": 0}, "trap": {"val": 4, "const": 0}, "stone": {"val": 8, "const": 0}},
+	"M1": {"val": 4, "const": 0},
+	"M2": {"val": 6, "const": 0},
+	"M3": {"val": 8, "const": 0},
+	"M4": {"val": 10, "const": 0},
+	"T1": {"val": 4, "const": 2},
+	"T2": {"val": 4, "const": 2},
+	"T3": {"val": 4, "const": 2},
+	"S1": {"val": 0, "const": 5},
+	"S2": {"val": 0, "const": 5},
+	"S3": {"val": 0, "const": 5}
+  },
+  "LEVELS": {
+	"1": "####2G####\n####2S####\n3G3S**1S1G",
+	"2": "##**##\n##..##\n##M2##\n1G2G3G\nM1M1M1\n1S2S3S",
+	"3": "##2G##\n..**..\n3GS11G\n##T1##\n3S2S1S",
+	"4": "##..##..##..##\n##2G..T1M2....\n....####..1G##\n##M1..S13G..##\n##3S##..##M2##\n##1S2SM2##..##",
+	"5": "####............####\n##..####1G..S1M1....\n##....T1##M1....S1..\n##..M3..####..M1####\n....##**T1..........\nT1..2G##..M1S1##....\n..##T1##M2....####..\nM1..##S1..T1##..3G##\n3S......####M3T1....\n1S2S....M2.........."
+  },
+  "OBJECT_INFO": {
+	"\\dG": {"name": "", "type": "goal"},
+	"M\\d": {"name": "Monster", "type": "monster", "moves":  {"1":  1, "2": 2, "3": 3, "4": 4}},
+	"T\\d": {"name": "Trap", "type": "trap"},
+	"S\\d": {"name": "Stone", "type": "stone"},
+	"##": {"name": "Wall", "type": "wall"},
+	"..": {"name": "Empty Space", "type": "empty_space"},
+	"**": {"name": "Tower", "type": "goal"}
+  },
+  "PHASES": ["pin_planning", "action_planning", "execute_plan", "enemy_execution"],
+  "PLAYER_INIT_VALUES": {
+	"1S": {"name": "Human", "type": "human", "action_points": 6, "max_points": 6, "health": 3, "sight_range": 3},
+	"2S": {"name": "Dwarf", "type": "dwarf", "action_points": 6, "max_points": 6, "health": 3, "sight_range": 3},
+	"3S": {"name": "Giant", "type": "giant", "action_points": 6, "max_points": 6, "health": 3, "sight_range": 3}
+  },
+  "SPECIAL_CHARACTERS": {
+	"EMPTY_SPACE": "..",
+	"ENEMY_REGEXES": {"monster": "M\\d", "trap": "T\\d", "stone": "S\\d"},
+	"TOWER": "**",
+	"WALL": "##"
+  }
+}
