@@ -1,0 +1,74 @@
+{
+  "ACTIONS": {
+	"DIRECTIONS": ["left", "right", "up", "down"],
+	"REVERSE_ACTIONS": {"left": "right", "right": "left", "up": "down", "down": "up", "wait": "wait"},
+	"VALID_PIN_ACTIONS": ["left", "right", "up", "down", "submit"],
+	"VALID_PIN_TYPES": ["PA", "PB", "PC", "PD"],
+	"VALID_MOVE_ACTIONS": ["left", "right", "up", "down", "wait", "submit"]
+  },
+  "DICE_ROLLS": {
+	"1S": {"Monster": {"val": 8, "const": 0}, "Trap": {"val": 6, "const": 0}, "Stone": {"val": 6, "const": 0}},
+	"2S": {"Monster": {"val": 6, "const": 0}, "Trap": {"val": 8, "const": 0}, "Stone": {"val": 4, "const": 0}},
+	"3S": {"Monster": {"val": 6, "const": 0}, "Trap": {"val": 4, "const": 0}, "Stone": {"val": 8, "const": 0}},
+	"M1": {"val": 4, "const": 0},
+	"M2": {"val": 6, "const": 0},
+	"M3": {"val": 8, "const": 0},
+	"M4": {"val": 10, "const": 0},
+	"T1": {"val": 4, "const": 2},
+	"T2": {"val": 4, "const": 2},
+	"T3": {"val": 4, "const": 2},
+	"S1": {"val": 0, "const": 5},
+	"S2": {"val": 0, "const": 5},
+	"S3": {"val": 0, "const": 5}
+  },
+  "LEVELS": {
+	"1": "####2G####\n####2S####\n3G3S**1S1G",
+	"2": "##**##\n##..##\n##M2##\n1G2G3G\nM1M1M1\n1S2S3S",
+	"3": "##2G##\n..**..\n3GS11G\n##T1##\n3S2S1S",
+	"4": "##..##..##..##\n##2G..T1M2..**\n....####..1G##\n##M1..S13G..##\n##3S##..##M2##\n##1S2SM2##..##",
+	"5": "####............####\n##..####1G..S1M1....\n##....T1##M1....S1..\n##..M3..####..M1####\n....##**T1..........\nT1..2G##..M1S1##....\n..##T1##M2....####..\nM1..##S1..T1##..3G##\n3S......####M3T1....\n1S2S....M2.........."
+  },
+  "OBJECT_INFO": {
+	"Monster": {"type": "monster", "regex": "(M\\d\\(\\d+\\)|M\\d)", "moves": {"1":  1, "2": 2, "3": 3, "4": 4}},
+	"Trap": {"type": "trap", "regex": "(T\\d\\(\\d+\\)|T\\d)"},
+	"Stone": {"type": "stone", "regex": "(S\\d\\(\\d+\\)|S\\d)"},
+	"Wall": {"type": "wall", "regex": "##"},
+	"Empty Space": {"type": "empty_space", "regex": ".."},
+	"Tower": {"type": "tower", "regex": "**"},
+	"Goal": {"type": "goal", "regex": "\\dG"},
+	"Pin": {"type": "pin", "regex": "(P(A|B|C|D)\\(\\dS\\)|P(A|B|C|D))"}
+  },
+  "PHASES": ["pin_planning", "action_planning", "execute_plan", "enemy_execution"],
+  "PLAYER_INIT_VALUES": {
+	"1S": {"name": "Human", "type": "human", "action_points": 6, "max_points": 6, "health": 3, "sight_range": 3},
+	"2S": {"name": "Dwarf", "type": "dwarf", "action_points": 6, "max_points": 6, "health": 3, "sight_range": 3},
+	"3S": {"name": "Giant", "type": "giant", "action_points": 6, "max_points": 6, "health": 3, "sight_range": 3},
+	"COMMON": {
+	  "start_x": null,
+	  "start_y": null,
+	  "goal_reached": false,
+	  "action_plan": [],
+	  "action_plan_step": 0,
+	  "action_path_x": null,
+	  "action_path_y": null,
+	  "pin_type": null,
+	  "pin_plan": [],
+	  "pin_x": null,
+	  "pin_y": null,
+	  "pin_path_x": null,
+	  "pin_path_y": null,
+	  "pin_finalized": false,
+	  "pin_plan_finalized": false,
+	  "action_plan_finalized": false,
+	  "status": "alive",
+	  "respawn_counter": null,
+	  "combat_outcome": null
+	}
+  },
+  "SPECIAL_CHARACTERS": {
+	"EMPTY_SPACE": "..",
+	"ENEMY_REGEXES": {"monster": "M\\d", "trap": "T\\d", "stone": "S\\d"},
+	"TOWER": "**",
+	"WALL": "##"
+  }
+}
