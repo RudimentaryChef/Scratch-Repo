@@ -1,4 +1,5 @@
 from collections import Counter
+from collections import defaultdict
 from copy import deepcopy
 from json import loads
 from random import choice
@@ -7,28 +8,32 @@ import re
 from tabulate import tabulate
 
 
-# TODO NEED TO MAKE OBJECT_POS TRACKING MORE GENERAL SINCE MULTIPLE ENEMIES OF THE SAME TYPE CAN EXIST ON THE GRID
-# TODO AT THE SAME TIME
 class DiceAdventure:
-    def __init__(self, level=1, render=False, render_verbose=False, num_repeats=0, restart_on_finish=False):
+    def __init__(self, level=1, limit_levels=None, render=False, render_verbose=False, num_repeats=0,
+                 restart_on_finish=False):
         # Game config
         self.config = loads(open("config.json", "r").read())
         # Level vars
         self.levels = {}
+        self.limit_levels = limit_levels if limit_levels else [int(i) for i in list(self.config["LEVELS"].keys())]
         self.get_levels()
-        self.curr_level = deepcopy(self.levels[level])
-        self.curr_level_num = level
+        self.curr_level_num = level if level in self.limit_levels else self.limit_levels[0]
+        self.curr_level = deepcopy(self.levels[self.curr_level_num])
         self.num_repeats = num_repeats
         self.restart_on_finish = restart_on_finish
         self.lvl_repeats = {lvl: self.num_repeats for lvl in self.levels}
         self.empty = self.config["OBJECT_INFO"]["Empty Space"]["regex"]
         self.tower = self.config["OBJECT_INFO"]["Tower"]["regex"]
         self.wall = self.config["OBJECT_INFO"]["Wall"]["regex"]
+        self.terminated = False
+        self.restart_on_team_loss = False
+
+        # Character/Object vars
         self.player_regex = r"\dS"
         self.enemy_regexes = {"Monster": self.config["OBJECT_INFO"]["Monster"]["regex"],
                               "Trap": self.config["OBJECT_INFO"]["Trap"]["regex"],
                               "Stone": self.config["OBJECT_INFO"]["Stone"]["regex"]}
-        self.terminated = False
+
         # Game phase vars
         self.phases = self.config["PHASES"]
         self.phase_num = 0
@@ -48,6 +53,8 @@ class DiceAdventure:
         self.counts = Counter()
         self.object_pos = self.get_object_locations()
         self.players = self.get_init_player_info()
+        # Metrics
+        # self.metrics = self.get_metrics_dict()
 
     ###################
     # INITIALIZE GAME #
@@ -77,29 +84,35 @@ class DiceAdventure:
     def get_levels(self):
         levels = deepcopy(self.config["LEVELS"])
         self.levels = {int(k): [[row[i:i + 2] for i in range(0, len(row), 2)] for row in v.strip().split("\n")]
-                       for k, v in levels.items()}
+                       for k, v in levels.items()
+                       if int(k) in self.limit_levels}
 
     def next_level(self):
         """
         Moves the game to the next level or repeats the same level
         :return:
         """
+        if self.restart_on_team_loss:
+            pass
         # If level should be repeated, decrement repeat counter
-        if self.lvl_repeats[self.curr_level_num]:
+        elif self.lvl_repeats[self.curr_level_num]:
             self.lvl_repeats[self.curr_level_num] -= 1
+            # print(F"REPEATING LEVEL: {self.curr_level_num} | NUM REPEATS LEFT: {self.lvl_repeats[self.curr_level_num]}")
         else:
             # Otherwise, move on to next level
             self.curr_level_num += 1
             # If finished final level and set to restart, go back to first level
             if self.curr_level_num > len(self.levels):
                 if self.restart_on_finish:
-                    self.curr_level_num = 1
+                    # print(f"RESTARTING TO FIRST LEVEL!")
+                    self.curr_level_num = self.limit_levels[0]
                 else:
-                    print("FINISHED ALL LEVELS!")
+                    # print("FINISHED ALL LEVELS!")
+                    # self.metrics[self.curr_level_num]["playthroughs"] += 1
                     if self.render_game:
                         self.render()
                     self.terminated = True
-                    return
+                    raise TerminationException()
         # Set current level
         self.curr_level = deepcopy(self.levels[self.curr_level_num])
         # Re-initialize values
@@ -137,10 +150,45 @@ class DiceAdventure:
                 "gridWidth": len(self.curr_level[0]),
                 "gridHeight": len(self.curr_level),
                 "level": self.curr_level_num,
-                "phase": self.phases[self.phase_num]
+                "num_repeats": self.num_repeats - self.lvl_repeats[self.curr_level_num],
+                "phase": self.phases[self.phase_num],
+                "game_over": self.terminated,
+                "restart_on_team_loss": self.restart_on_team_loss
             },
             "scene": []
         }
+        # Used to track when level restart is due to all characters dying
+        if self.restart_on_team_loss:
+            self.restart_on_team_loss = False
+
+        for p in self.players:
+            x = y = None
+            if p in self.object_pos:
+                x = self.object_pos[p]["x"]
+                y = self.object_pos[p]["y"]
+
+            state["scene"].append(
+                {"name": self.players[p]["name"],
+                 "type": self.players[p]["type"],
+                 "x": x,
+                 "y": y,
+                 "action_points": self.players[p]["action_points"],
+                 "max_points": self.players[p]["max_points"],
+                 "health": self.players[p]["health"],
+                 "sightRange": self.players[p]["sight_range"],
+                 "status": self.players[p]["status"],
+                 "respawn_counter": self.players[p]["respawn_counter"],
+                 "goal_reached": self.players[p]["goal_reached"],
+                 "pin_type": self.players[p]["pin_type"].split("(")[0] if self.players[p]["pin_type"] else None,
+                 "pin_path_x": self.players[p]["pin_path_x"],
+                 "pin_path_y": self.players[p]["pin_path_y"],
+                 "pin_finalized": self.players[p]["pin_finalized"],
+                 "pin_plan_finalized": self.players[p]["pin_plan_finalized"],
+                 "action_path_x": self.players[p]["action_path_x"],
+                 "action_path_y": self.players[p]["action_path_y"],
+                 "action_plan_finalized": self.players[p]["action_plan_finalized"]
+                 }
+            )
         obj_info = deepcopy(self.config["OBJECT_INFO"])
         for i in range(len(self.curr_level)):
             for j in range(len(self.curr_level[0])):
@@ -148,51 +196,32 @@ class DiceAdventure:
                 for obj in objs:
                     info = {}
                     # Get current info about players
-                    if obj in self.players:
-                        info.update({"name": self.players[obj]["name"],
-                                     "type": self.players[obj]["type"],
-                                     "x": i,
-                                     "y": j,
-                                     "action_points": self.players[obj]["action_points"],
-                                     "max_points": self.players[obj]["max_points"],
-                                     "health": self.players[obj]["health"],
-                                     "sightRange": self.players[obj]["sight_range"],
-                                     "status": self.players[obj]["status"],
-                                     "respawn_counter": self.players[obj]["respawn_counter"],
-                                     "goal_reached": self.players[obj]["goal_reached"],
-                                     "pin_type": self.players[obj]["pin_type"].split("(")[0] if self.players[obj]["pin_type"] else None,
-                                     "pin_path_x": self.players[obj]["pin_path_x"],
-                                     "pin_path_y": self.players[obj]["pin_path_y"],
-                                     "pin_plan_finalized": self.players[obj]["pin_plan_finalized"],
-                                     "action_path_x": self.players[obj]["action_path_x"],
-                                     "action_path_y": self.players[obj]["action_path_y"],
-                                     "action_plan_finalized": self.players[obj]["action_plan_finalized"]
-                                     })
-                        state["scene"].append(info)
+                    if obj not in self.players and obj != self.empty:
 
-                    # Check if object is a pin
-                    elif re.match("(P(A|B|C|D)\\(\\dS\\))", obj):
-                        info.update({
-                            "name": obj.split("(")[0],
-                            "type": "pin",
-                            "x": i,
-                            "y": j
-                        })
-                        state["scene"].append(info)
-                    else:
-                        # Get info about other game objects
-                        for obj_name in obj_info:
-                            if re.match(obj_info[obj_name]["regex"], obj):
-                                info.update(obj_info[obj_name])
-                                break
-                        # Specify whose goal it is
-                        if info["type"] == "goal" and info["name"] != "tower":
-                            info["name"] = self.players[obj[0]+"S"]["name"] + " Goal"
+                        # Check if object is a pin
+                        # if re.match("(P(A|B|C|D)\\(\\dS\\))", obj):
+                        if obj[0] == "P":
+                            info.update({
+                                "name": obj.split("(")[0],
+                                "type": "pin",
+                                "x": i,
+                                "y": j
+                            })
+                            state["scene"].append(info)
                         else:
-                            info["name"] = obj.split("(")[0]
-                        info["x"] = i
-                        info["y"] = j
-                        state["scene"].append(info)
+                            # Get info about other game objects
+                            for obj_name in obj_info:
+                                if re.match(obj_info[obj_name]["regex"], obj):
+                                    info.update(obj_info[obj_name])
+                                    break
+                            # Specify whose goal it is
+                            if info["type"] == "goal" and info["name"] != "tower":
+                                info["name"] = self.players[obj[0]+"S"]["name"] + " Goal"
+                            else:
+                                info["name"] = obj.split("(")[0]
+                            info["x"] = i
+                            info["y"] = j
+                            state["scene"].append(info)
         return state
 
     def execute_action(self, player, action):
@@ -204,7 +233,8 @@ class DiceAdventure:
         """
         # If all players have died, reset level
         if all([self.players[p]["status"] == "dead" for p in self.players]):
-            self.lvl_repeats[self.curr_level_num] += 1
+            # self.metrics[self.curr_level_num]["team_deaths"] += 1
+            self.restart_on_team_loss = True
             self.next_level()
             return
 
@@ -224,13 +254,18 @@ class DiceAdventure:
         for p in self.players:
             if self.players[p]["status"] == "dead":
                 # Check if they've waited enough game cycles
-                if (self.players[p]["respawn_counter"] / len(self.phases)) != self.respawn_wait:
-                    self.players[p]["respawn_counter"] += 1
-                # Player has waited long enough
-                else:
+                if self.players[p]["respawn_counter"] >= self.respawn_wait:
+                    # Player has waited long enough
                     self.players[p]["status"] = "alive"
                     self.players[p]["respawn_counter"] = None
+                    self.players[p]["phases_passed"] = []
                     self.place(p, x=self.players[p]["start_x"], y=self.players[p]["start_y"])
+                # Otherwise, need to wait
+                else:
+                    self.players[p]["phases_passed"].append(self.phases[self.phase_num])
+                    if "enemy_execution" in self.players[p]["phases_passed"]:
+                        self.players[p]["respawn_counter"] += 1
+                        self.players[p]["phases_passed"] = []
 
     ##############################
     # PHASE PLANNING & EXECUTION #
@@ -827,3 +862,12 @@ class DiceAdventure:
         print("Grid:")
         print(tabulate(self.curr_level, tablefmt="grid"), end="\n\n")
 
+    @staticmethod
+    def get_metrics_dict():
+        # {lvl: defaultdict(Counter) for lvl in self.levels}
+        return {}
+
+
+class TerminationException(Exception):
+    def __init__(self):
+        pass

@@ -1,5 +1,6 @@
 gymnasium
 numpy
+rich
 tabulate
 tensorflow
 tqdm

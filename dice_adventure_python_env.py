@@ -1,30 +1,95 @@
+from dice_adventure import DiceAdventure
+from gymnasium import Env
 from gymnasium import spaces
 import numpy as np
+from os import path
+from random import choice
+from stable_baselines3 import PPO
+from time import sleep
+
+"""
+Assumptions:
+1. step(): Previous state is based on resulting state of previous action, not the state right before taking the action.
+"""
 
 
-class DiceAdventurePythonEnv:
-    def __init__(self, game, player="1S", all_players=True):
+class DiceAdventurePythonEnv(Env):
+    def __init__(self, player, model_filename, **kwargs):
         """
         :param game: A Dice Adventure game object
-        :param player: The player to play as
-        :param all_players: Determines whether agent plays as all players or only the player provided in parameter
         'player'
         """
-        self.game = game
+        self.game = None
+        self.prev_state = None
+        self.kwargs = kwargs
         self.player = player
-        self.types = {"1S": "human", "2S": "dwarf", "3S": "giant"}
-        self.mask = 5
+        self.player_num = 0
+        self.players = {"1S": "human", "2S": "dwarf", "3S": "giant"}
+        self.player_ids = ["1S", "2S", "3S"]
+
+        self.masks = {"1S": 3, "2S": 4, "3S": 5}
+        self.max_mask_radius = max(self.masks.values())
+        self.local_mask_radius = self.masks[self.player]
         self.action_map = {0: 'left', 1: 'right', 2: 'up', 3: 'down', 4: 'wait',
                            5: 'submit', 6: 'PA', 7: 'PB', 8: 'PC', 9: 'PD', 10: 'undo'}
-        self.levels = {}
+
+        self.goals = {"1S": False, "2S": False, "3S": False}
+        self.pin_mapping = {"A": 0, "B": 1, "C": 2, "D": 3}
+
+        self.time_steps = 0
+        self.load_threshold = 15000000
+        self.model_filename = model_filename
+        self.model = None
 
         num_actions = len(self.action_map)
         self.action_space = spaces.Discrete(num_actions)
         # The observation will be the coordinate of the agent
         # this can be described both by Discrete and Box space
-        vector_len = self.mask * self.mask * len(self.get_type_positions()) * 4
-        self.observation_space = spaces.Box(low=0, high=100,
+        self.mask_size = self.max_mask_radius * 2 + 1
+        vector_len = self.mask_size * self.mask_size * len(self.get_type_positions()) * 4
+        self.observation_space = spaces.Box(low=-5, high=100,
                                             shape=(vector_len,), dtype=np.float32)
+
+    def step(self, action):
+        # Update model for other players
+        self.time_steps += 1
+        if self.time_steps % self.load_threshold == 0:
+            if path.exists(self.model_filename):
+                self.model = PPO.load(self.model_filename)
+        # Execute action of agent
+        self.game.execute_action(self.player, self.action_map[action])
+        next_state = self.game.get_state()
+        p1 = self.get_player_from_scene(self.prev_state)
+        p2 = self.get_player_from_scene(next_state)
+
+        # If player is dead, must wait until alive again
+        while p2["status"] == "dead":
+            self.play_others(next_state)
+            next_state = self.game.get_state()
+            p2 = self.get_player_from_scene(next_state)
+
+        # new_obs, reward, terminated, truncated, info
+        new_obs = self.get_observation(next_state)
+        reward = self.get_reward(p1, p2, next_state)
+        terminated = self.game.terminated
+        truncated = False
+        info = {}
+        # Set next player
+        # self.player_num = (self.player_num + 1) % len(self.players)
+        self.prev_state = next_state
+
+        self.play_others(next_state)
+        return new_obs, reward, terminated, truncated, info
+
+    def play_others(self, next_state):
+        # Play as other players (temporary)
+        for p in self.players:
+            if p != self.player:
+                if self.model:
+                    a, _states = self.model.predict(self.get_observation(next_state, player=p))
+                else:
+                    a = choice(self.action_map)
+                self.game.execute_action(p, a)
 
     def close(self):
         pass
@@ -33,32 +98,58 @@ class DiceAdventurePythonEnv:
         if not self.game.render:
             self.game.render()
 
-    def reset(self):
-        pass
+    def reset(self, **kwargs):
+        self.game = DiceAdventure(**self.kwargs)
+        self.prev_state = self.game.get_state()
+        return self.get_observation(self.prev_state), {}
 
-    def step(self, action, player=None):
-        if not player:
-            player = self.player
-        state = self.game.get_state()
-        self.game.execute_action(player, self.action_map[action])
-        next_state = self.game.get_state()
-
-        reward = self.get_reward(state, next_state)
-
-    @staticmethod
-    def get_reward(state, next_state):
+    def get_reward(self, p1, p2, next_state):
         # Get reward
         """
         Rewards:
-        1. Player getting goal
-        2. Players getting to tower after getting all goals
+        1. Player getting goal + small
+        2. Players getting to tower after getting all goals + small
+        3. Winning combat
 
         Penalties:
         1. Player losing health
+        2.
         """
-        return 0
+        r = 0
+        # Player getting goal
+        if not p1["goal_reached"] and p2["goal_reached"]:
+            r += .5
+        # Players getting to tower after getting all goals
+        if self.check_new_level(next_state):
+            r += 1
+        if self.health_lost(p1, p2):
+            r -= 1
+        return r
 
-    def get_observation(self, state):
+    def check_new_level(self, next_state):
+        return self.prev_state["gameData"]["level"] < next_state["gameData"]["level"] or \
+            (self.prev_state["gameData"]["level"] == next_state["gameData"]["level"] and
+             self.prev_state["gameData"]["num_repeats"] < next_state["gameData"]["num_repeats"])
+
+    def health_lost(self, p1, p2):
+        """
+        Checks difference between previous and next state to determine if a player has lost health or died
+        :param next_state: The state resulting from the previous action
+        :return: True if a player has lost health or died, False otherwise
+        """
+        return (p1["health"] < p2["health"]) or (p1["status"] == "alive" and p2["status"] == "dead")
+
+    def get_player_from_scene(self, state):
+        p = None
+        for ele in state["scene"]:
+            if ele.get("type") == self.players[self.player]:
+                p = ele
+                break
+        if p is None:
+            print(state)
+        return p
+
+    def get_observation(self, state, player=None):
         """
         Constructs an array observation for agent based on state. Dimensions:
         1. self.mask x self.mask (1-2)
@@ -68,41 +159,78 @@ class DiceAdventurePythonEnv:
         :param state:
         :return:
         """
-        # new_obs, reward, terminated, truncated, info
         type_pos = self.get_type_positions()
         x = None
         y = None
+        p_info = np.array([])
+
+        if player is None:
+            player = self.player
+
         for i in state["scene"]:
-            if i["type"] == self.types[self.player]:
+            if i["type"] == self.players[player]:
                 x = i["x"]
                 y = i["y"]
+                # p_info = self.parse_player_state_data(i)
                 break
-        ego_x = int(self.mask / 2)
-        ego_y = int(self.mask / 2)
 
-        offset = ((self.mask - 1) / 2)
-        x_bound_upper = x + offset
-        x_bound_lower = x - offset
-        y_bound_upper = y + offset
-        y_bound_lower = y - offset
+        x_bound_upper = x + self.local_mask_radius
+        x_bound_lower = x - self.local_mask_radius
+        y_bound_upper = y + self.local_mask_radius
+        y_bound_lower = y - self.local_mask_radius
 
-        grid = np.zeros((self.mask, self.mask, len(type_pos), 4))
+        grid = np.zeros((self.mask_size, self.mask_size, len(type_pos), 4))
         for obj in state["scene"]:
-            if x_bound_lower <= obj["x"] <= x_bound_upper and \
-                    y_bound_lower <= obj["y"] <= y_bound_upper:
-                other_x = ego_x - (x - obj["x"])
-                other_y = ego_y - (y - obj["y"])
+            if obj["type"] in type_pos and obj["x"] and obj["y"]:
+                if x_bound_lower <= obj["x"] <= x_bound_upper and \
+                        y_bound_lower <= obj["y"] <= y_bound_upper:
+                    other_x = self.local_mask_radius - (x - obj["x"])
+                    other_y = self.local_mask_radius - (y - obj["y"])
+                    # For enemies or pins, determine which type
+                    obj_type = obj["name"][0]
+                    if obj_type in ["M", "T", "S", "P"]:
+                        if obj_type == "P":
+                            version = self.pin_mapping[obj["name"][1]]
+                        else:
+                            version = int(obj["name"][1]) - 1
 
-                if obj["name"][0] in ["M", "T", "S"]:
-                    enemy_lvl = int(obj["name"][1]) - 1
-                    grid[other_x][other_y][type_pos[obj["type"]]][enemy_lvl] = 1
-                else:
-                    grid[other_x][other_y][type_pos[obj["type"]]][0] = 1
+                        grid[other_x][other_y][type_pos[obj["type"]]][version] = 1
+                    else:
+                        grid[other_x][other_y][type_pos[obj["type"]]][0] = 1
 
-        return np.ndarray.flatten(grid)
+        return np.concatenate((np.ndarray.flatten(grid), p_info))
+
+    @staticmethod
+    def parse_player_state_data(p_info):
+        state_map = {
+            "action_points": {"pos": 0, "map": {}},
+            "max_points": {"pos": 1, "map": {}},
+            "health": {"pos": 2, "map": {}},
+            "status": {"pos": 3, "map": {"dead": 0, "alive": 1}},
+            "respawn_counter": {"pos": 4, "map": {None: -1, 0: 0, 1: 1}},
+            "goal_reached": {"pos": 5, "map": {False: 0, True: 1}},
+            "pin_path_x": {"pos": 6, "map": {None: -1}},
+            "pin_path_y": {"pos": 7, "map": {None: -1}},
+            "pin_finalized": {"pos": 8, "map": {False: 0, True: 1}},
+            "pin_plan_finalized": {"pos": 9, "map": {False: 0, True: 1}},
+            "action_path_x": {"pos": 10, "map": {None: -1}},
+            "action_path_y": {"pos": 11, "map": {None: -1}},
+            "action_plan_finalized": {"pos": 12, "map": {False: 0, True: 1}}
+        }
+        vector = np.zeros((len(state_map,)))
+        for field in state_map:
+            data = p_info[field]
+            # Value should come from mapping
+            if data in state_map[field]["map"]:
+                vector[state_map[field]["pos"]] = state_map[field]["map"][data]
+            # Otherwise, value is scalar
+            else:
+                vector[state_map[field]["pos"]] = data
+        return vector
 
     @staticmethod
     def get_type_positions():
         return {'human': 0, 'dwarf': 1, 'giant': 2, 'goal': 3,
                 'door': 4, 'wall': 5, 'monster': 6, 'trap': 7,
-                'rock': 8, 'tower': 9}
+                'rock': 8, 'tower': 9, 'pin': 10}
+

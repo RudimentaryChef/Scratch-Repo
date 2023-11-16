@@ -62,6 +62,7 @@
 	  "action_plan_finalized": false,
 	  "status": "alive",
 	  "respawn_counter": null,
+	  "phases_passed": [],
 	  "combat_outcome": null
 	}
   },
