@@ -1,7 +1,11 @@
 from collections import Counter
 from collections import defaultdict
 from copy import deepcopy
+from datetime import datetime
+from json import dumps
 from json import loads
+from os import makedirs
+from os import path
 from random import choice
 from random import shuffle
 import re
@@ -10,7 +14,7 @@ from tabulate import tabulate
 
 class DiceAdventure:
     def __init__(self, level=1, limit_levels=None, render=False, render_verbose=False, num_repeats=0,
-                 restart_on_finish=False):
+                 restart_on_finish=False, track_metrics=True, metrics_dir=None, metrics_save_threshold=10000):
         # Game config
         self.config = loads(open("config.json", "r").read())
         # Level vars
@@ -54,8 +58,16 @@ class DiceAdventure:
         self.object_pos = self.get_object_locations()
         self.players = self.get_init_player_info()
         # Metrics
-        # self.metrics = self.get_metrics_dict()
-
+        self.track_metrics = track_metrics
+        self.metrics = self.get_metrics_dict()
+        self.num_rounds = 0
+        self.metrics_dir = metrics_dir if metrics_dir is not None else "monitoring"
+        makedirs(self.metrics_dir, exist_ok=True)
+        # Number of calls to execute_action() or get_state() functions
+        self.num_calls = 0
+        # After this number of calls to the game, save metrics in log files
+        self.metrics_save_threshold = metrics_save_threshold
+        # {1: {"Human": {"health_lost": ['2023-11-20 09:43:54', ]
     ###################
     # INITIALIZE GAME #
     ###################
@@ -92,6 +104,10 @@ class DiceAdventure:
         Moves the game to the next level or repeats the same level
         :return:
         """
+        # Track number of rounds
+        if self.track_metrics:
+            self._track_game_metrics(metric_name="rounds", metric=self.num_rounds)
+
         if self.restart_on_team_loss:
             pass
         # If level should be repeated, decrement repeat counter
@@ -108,11 +124,13 @@ class DiceAdventure:
                     self.curr_level_num = self.limit_levels[0]
                 else:
                     # print("FINISHED ALL LEVELS!")
-                    # self.metrics[self.curr_level_num]["playthroughs"] += 1
                     if self.render_game:
                         self.render()
                     self.terminated = True
+                    if self.track_metrics:
+                        self._save_metrics()
                     raise TerminationException()
+
         # Set current level
         self.curr_level = deepcopy(self.levels[self.curr_level_num])
         # Re-initialize values
@@ -120,6 +138,7 @@ class DiceAdventure:
         self.object_pos = self.get_object_locations()
         self.players = self.get_init_player_info()
         self.phase_num = 0
+        self.num_rounds = 0
 
     def reset_player_values(self, p):
         self.players[p]["action_plan"] = []
@@ -145,17 +164,23 @@ class DiceAdventure:
         Constructs a state representation of the game environment.
         :return: Dict
         """
+        self.num_calls += 1
         state = {
-            "gameData": {
-                "gridWidth": len(self.curr_level[0]),
-                "gridHeight": len(self.curr_level),
-                "level": self.curr_level_num,
-                "num_repeats": self.num_repeats - self.lvl_repeats[self.curr_level_num],
-                "phase": self.phases[self.phase_num],
-                "game_over": self.terminated,
-                "restart_on_team_loss": self.restart_on_team_loss
-            },
-            "scene": []
+            "command": "get_state",
+            "status": "OK",
+            "message": "Full State",
+            "content": {
+                "gameData": {
+                    "boardWidth": len(self.curr_level[0]),
+                    "boardHeight": len(self.curr_level),
+                    "level": self.curr_level_num,
+                    "num_repeats": self.num_repeats - self.lvl_repeats[self.curr_level_num],
+                    "currentPhase": self.phases[self.phase_num],
+                    # "game_over": self.terminated,
+                    "restart_on_team_loss": self.restart_on_team_loss
+                },
+                "scene": []
+            }
         }
         # Used to track when level restart is due to all characters dying
         if self.restart_on_team_loss:
@@ -167,28 +192,40 @@ class DiceAdventure:
                 x = self.object_pos[p]["x"]
                 y = self.object_pos[p]["y"]
 
-            state["scene"].append(
+            state["content"]["scene"].append(
                 {"name": self.players[p]["name"],
+                 "characterId": int(p[0]),
                  "type": self.players[p]["type"],
                  "x": x,
                  "y": y,
-                 "action_points": self.players[p]["action_points"],
-                 "max_points": self.players[p]["max_points"],
-                 "health": self.players[p]["health"],
+                 "pinCursorX": self.players[p]["pin_path_x"],
+                 "pinCursorY": self.players[p]["pin_path_y"],
                  "sightRange": self.players[p]["sight_range"],
-                 "status": self.players[p]["status"],
-                 "respawn_counter": self.players[p]["respawn_counter"],
-                 "goal_reached": self.players[p]["goal_reached"],
-                 "pin_type": self.players[p]["pin_type"].split("(")[0] if self.players[p]["pin_type"] else None,
-                 "pin_path_x": self.players[p]["pin_path_x"],
-                 "pin_path_y": self.players[p]["pin_path_y"],
-                 "pin_finalized": self.players[p]["pin_finalized"],
-                 "pin_plan_finalized": self.players[p]["pin_plan_finalized"],
-                 "action_path_x": self.players[p]["action_path_x"],
-                 "action_path_y": self.players[p]["action_path_y"],
-                 "action_plan_finalized": self.players[p]["action_plan_finalized"]
+                 "monsterDice": f"D{self.dice_rolls[p]['Monster']['val']}+{self.dice_rolls[p]['Monster']['const']}",
+                 "trapDice": f"D{self.dice_rolls[p]['Trap']['val']}+{self.dice_rolls[p]['Trap']['const']}",
+                 "stoneDice": f"D{self.dice_rolls[p]['Stone']['val']}+{self.dice_rolls[p]['Stone']['const']}",
+                 "health": 3,
+                 "dead": self.players[p]["status"] == "dead",
+                 "actionPoints": self.players[p]["action_points"],
+                 "actionPlan": self.players[p]["action_plan"]
                  }
             )
+            # Add goal information
+            shrine = {
+                "type": "shrine",
+                "reached": self.players[p]["goal_reached"],
+                "character": self.players[p]["name"]
+            }
+            shrine_name = p[0]+"G"
+            if shrine_name in self.object_pos:
+                shrine["x"] = self.object_pos[shrine_name]["x"]
+                shrine["y"] = self.object_pos[shrine_name]["y"]
+            else:
+                shrine["x"] = None
+                shrine["y"] = None
+            state["content"]["scene"].append(shrine)
+
+        size_mapping = {"1": "S", "2": "M", "3": "L", "4": "XL"}
         obj_info = deepcopy(self.config["OBJECT_INFO"])
         for i in range(len(self.curr_level)):
             for j in range(len(self.curr_level[0])):
@@ -207,21 +244,21 @@ class DiceAdventure:
                                 "x": i,
                                 "y": j
                             })
-                            state["scene"].append(info)
+                            state["content"]["scene"].append(info)
                         else:
                             # Get info about other game objects
                             for obj_name in obj_info:
                                 if re.match(obj_info[obj_name]["regex"], obj):
-                                    info.update(obj_info[obj_name])
+                                    if obj[0] == "M":
+                                        info["type"] = size_mapping[obj[1]] + "_" + obj_info[obj_name].get("type")
+                                    else:
+                                        info["type"] = obj_info[obj_name].get("type")
                                     break
-                            # Specify whose goal it is
-                            if info["type"] == "goal" and info["name"] != "tower":
-                                info["name"] = self.players[obj[0]+"S"]["name"] + " Goal"
-                            else:
-                                info["name"] = obj.split("(")[0]
+
+                            info["name"] = obj.split("(")[0]
                             info["x"] = i
                             info["y"] = j
-                            state["scene"].append(info)
+                            state["content"]["scene"].append(info)
         return state
 
     def execute_action(self, player, action):
@@ -231,12 +268,16 @@ class DiceAdventure:
         :param action: The action to apply
         :return: N/A
         """
+        self.num_calls += 1
         # If all players have died, reset level
         if all([self.players[p]["status"] == "dead" for p in self.players]):
-            # self.metrics[self.curr_level_num]["team_deaths"] += 1
+            self.metrics[f"Level{self.curr_level_num}"]["team_deaths"].append([self._timestamp()])
             self.restart_on_team_loss = True
             self.next_level()
             return
+        # Check if need to save metrics
+        if self.num_calls % self.metrics_save_threshold == 0:
+            self._save_metrics()
 
         if self.phases[self.phase_num] == "pin_planning":
             self.pin_planning(player, action)
@@ -254,18 +295,11 @@ class DiceAdventure:
         for p in self.players:
             if self.players[p]["status"] == "dead":
                 # Check if they've waited enough game cycles
-                if self.players[p]["respawn_counter"] >= self.respawn_wait:
+                if self.num_rounds- self.players[p]["death_round"] >= self.respawn_wait:
                     # Player has waited long enough
                     self.players[p]["status"] = "alive"
-                    self.players[p]["respawn_counter"] = None
-                    self.players[p]["phases_passed"] = []
+                    self.players[p]["death_round"] = None
                     self.place(p, x=self.players[p]["start_x"], y=self.players[p]["start_y"])
-                # Otherwise, need to wait
-                else:
-                    self.players[p]["phases_passed"].append(self.phases[self.phase_num])
-                    if "enemy_execution" in self.players[p]["phases_passed"]:
-                        self.players[p]["respawn_counter"] += 1
-                        self.players[p]["phases_passed"] = []
 
     ##############################
     # PHASE PLANNING & EXECUTION #
@@ -299,6 +333,10 @@ class DiceAdventure:
                     self.players[player]["pin_path_y"] = self.object_pos[player]["y"]
                 # Finalize pin selection
                 self.players[player]["pin_finalized"] = True
+                # Track pinning metrics
+                if self.track_metrics and self.players[player]["pin_type"] != "no-pin":
+                    self._track_player_metrics(self.players[player]["name"], metric_name="pins",
+                                               pin_type=self.players[player]["pin_type"].split("(")[0])
 
             # No-op/invalid action
             else:
@@ -363,7 +401,7 @@ class DiceAdventure:
                        for i in [[d] + list(self.update_location_by_direction(d, curr_x, curr_y))
                                  for d in self.directions]
                        if curr_x != i[1] or curr_y != i[2]]
-        valid_moves.extend(["wait"])
+        valid_moves.append("wait")
 
         if action in valid_moves:
             # If player has finalized plan or exhausted action points, they cannot move at this time
@@ -442,6 +480,7 @@ class DiceAdventure:
         # Trigger enemy movement
         if self.phases[self.phase_num] == "enemy_execution":
             self.execute_enemy_plans()
+            self.num_rounds += 1
 
     def execute_plans(self):
         """
@@ -587,11 +626,31 @@ class DiceAdventure:
                 self.multi_remove(enemies)
                 for p in players:
                     self.players[p]["combat_success"] = True
+                    if self.track_metrics:
+                        if enemy_type == "Monster":
+                            sizes = [self.config["OBJECT_INFO"]["Monster"]["size_mapping"][e.split("(")[0]].split("_")[0]
+                                     for e in enemies]
+                            for size in sizes:
+                                self._track_player_metrics(self.players[p]["name"], metric_name="combat",
+                                                           combat_outcome="win", enemy_type=enemy_type, enemy_size=size)
+                        else:
+                            self._track_player_metrics(self.players[p]["name"], metric_name="combat", combat_outcome="win",
+                                                       enemy_type=enemy_type)
             else:
                 for p in players:
                     if enemy_type == "Monster":
                         # Lose a heart
                         self.players[p]["health"] -= 1
+                        # Track health lost and combat loss metrics
+                        if self.track_metrics:
+                            self._track_player_metrics(self.players[p]["name"], metric_name="health_loss")
+                            sizes = [
+                                self.config["OBJECT_INFO"]["Monster"]["size_mapping"][e.split("(")[0]].split("_")[0]
+                                for e in enemies]
+                            for size in sizes:
+                                self._track_player_metrics(self.players[p]["name"], metric_name="combat",
+                                                           combat_outcome="lose", enemy_type=enemy_type,
+                                                           enemy_size=size)
                         # Go back a step (if player has moved)
                         prev_action_step = self.players[p]["action_plan_step"] - 1
                         # Only have character take a step back if it has moved
@@ -604,23 +663,37 @@ class DiceAdventure:
                     elif enemy_type == "Trap":
                         # Lose a heart
                         self.players[p]["health"] -= 1
+                        # Track health lost and combat lost metrics
+                        if self.track_metrics:
+                            self._track_player_metrics(self.players[p]["name"], metric_name="health_loss")
+                            self._track_player_metrics(self.players[p]["name"], metric_name="combat", combat_outcome="lose",
+                                                       enemy_type=enemy_type)
                         # Truncate action plan
                         self.players[p]["action_plan"] = []
                         self.players[p]["action_plan_step"] = 0
                     elif enemy_type == "Stone":
+                        # Track combat lost metrics
+                        if self.track_metrics:
+                            self._track_player_metrics(self.players[p]["name"], metric_name="combat", combat_outcome="lose",
+                                                       enemy_type=enemy_type)
                         # Truncate action plan
                         self.players[p]["action_plan"] = []
                         self.players[p]["action_plan_step"] = 0
                     # If player dies, remove from board
                     if self.players[p]["health"] <= 0:
+                        if self.track_metrics:
+                            self._track_player_metrics(self.players[p]["name"], metric_name="deaths")
                         self.players[p]["health"] = 0
                         self.players[p]["status"] = "dead"
-                        self.players[p]["respawn_counter"] = 0
+                        self.players[p]["death_round"] = self.num_rounds
                         self.remove(p)
                     self.players[p]["combat_success"] = False
                 # Traps are destroyed
                 if enemy_type == "Trap":
                     self.multi_remove(enemies)
+
+    def _track_pins(self, player_name, pin_type):
+        pass
 
     def get_player_dice_roll(self, p, e):
         if self.dice_rolls[p][e]["val"] > 0:
@@ -855,17 +928,99 @@ class DiceAdventure:
         if self.render_verbose:
             info = [
                 ["Level:", self.curr_level_num],
-                ["Phase:", self.phases[self.phase_num]],
+                ["Phase:", self.phases[self.phase_num]]
             ]
             print("Game Info:")
             print(tabulate(info, tablefmt="grid"))
         print("Grid:")
         print(tabulate(self.curr_level, tablefmt="grid"), end="\n\n")
 
+    ###########
+    # METRICS #
+    ###########
+
+    def get_metrics_dict(self):
+        d = {}
+        for lvl in self.levels:
+            d[f"Level{lvl}"] = {
+                "team_deaths": [],
+                "rounds": [],
+                "Human": self._get_player_metrics_dict(),
+                "Dwarf": self._get_player_metrics_dict(),
+                "Giant": self._get_player_metrics_dict()
+            }
+        return d
+
     @staticmethod
-    def get_metrics_dict():
-        # {lvl: defaultdict(Counter) for lvl in self.levels}
-        return {}
+    def _get_player_metrics_dict():
+        return {
+            "health_loss": [],
+            "deaths": [],
+            "pins": {"PA": [], "PB": [], "PC": [], "PD": []},
+            "combat": {"win": {"Monster": {"S": [], "M": [], "L": [], "XL": []},
+                               "Stone": [],
+                               "Trap": []},
+                       "lose": {"Monster": {"S": [], "M": [], "L": [], "XL": []},
+                                "Stone": [],
+                                "Trap": []}}
+        }
+
+    @staticmethod
+    def _timestamp():
+        return datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')
+
+    def _track_game_metrics(self, metric, metric_name):
+        lvl_repeat = self.num_repeats - self.lvl_repeats[self.curr_level_num]
+        record = [self._timestamp(), metric, lvl_repeat]
+        self.metrics[f"Level{self.curr_level_num}"][metric_name].append(record)
+
+    def _track_player_metrics(self, player_name, metric_name, pin_type=None, combat_outcome=None, enemy_type=None,
+                              enemy_size=None):
+        lvl_repeat = self.num_repeats - self.lvl_repeats[self.curr_level_num]
+        record = [self._timestamp(), lvl_repeat]
+        if metric_name == "pins":
+            self.metrics[f"Level{self.curr_level_num}"][player_name][metric_name][pin_type].append(record)
+        elif metric_name == "combat":
+            if enemy_type == "Monster":
+                self.metrics[f"Level{self.curr_level_num}"][player_name][metric_name][combat_outcome][enemy_type][enemy_size].append(record)
+            else:
+                self.metrics[f"Level{self.curr_level_num}"][player_name][metric_name][combat_outcome][enemy_type].append(record)
+        else:
+            self.metrics[f"Level{self.curr_level_num}"][player_name][metric_name].append(record)
+    """
+    {
+        "health_loss": [],
+        "deaths": [],
+        "pins": {"PA": [], "PB": [], "PC": [], "PD": []},
+        "combat": {"win": {"Monster": {"S": [], "M": [], "L": [], "XL": []},
+                           "Stone": [],
+                           "Trap": []},
+                   "lose": {"Monster": {"S": [], "M": [], "L": [], "XL": []},
+                            "Stone": [],
+                            "Trap": []}}
+    }
+    """
+
+    def _save_metrics(self):
+        self._save_recursive(self.metrics)
+
+    def _save_recursive(self, d, filename=""):
+        for k in d:
+            curr_filename = f"{filename}"
+
+            if not curr_filename:
+                curr_filename = k
+            else:
+                curr_filename += f"-{k}"
+            if isinstance(d[k], dict):
+                self._save_recursive(d[k], curr_filename)
+            elif isinstance(d[k], list):
+                if d[k]:
+                    curr_filename += ".txt"
+
+                    with open(f"{self.metrics_dir}/{curr_filename}", "a" if path.exists(filename) else "w") as file:
+                        for i in d[k]:
+                            file.write(",".join([str(ele) for ele in i])+"\n")
 
 
 class TerminationException(Exception):

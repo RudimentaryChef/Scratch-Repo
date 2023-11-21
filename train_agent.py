@@ -12,6 +12,8 @@ from stable_baselines3.common.utils import set_random_seed
 from stable_baselines3.common.env_util import DummyVecEnv
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.vec_env import SubprocVecEnv
+from stable_baselines3.common.vec_env import VecMonitor
 from tqdm import tqdm
 
 
@@ -20,20 +22,20 @@ NUM_TIME_STEPS = 1000000000
 
 def main(player="1S"):
     tensor_board_log = "./dice_adventure_tensorboard/"
+    monitor_dir = "./monitoring/"
     model_filename = "dice_adventure_ppo_model"
     makedirs(tensor_board_log, exist_ok=True)
 
     # game = DiceAdventure(level=1, render=False, num_repeats=100)
+    num_env_copies = 3
     players = ["1S", "2S", "3S"]
-
     envs = [
-        lambda: DiceAdventurePythonEnv(player=p,
-                                       model_filename=model_filename,
-                                       level=1, render=False, num_repeats=1000)
-        for p in players
+        make_env(str(i*num_env_copies+j), p, model_filename, monitor_dir)
+        for i, p in enumerate(players) for j in range(num_env_copies)
     ]
     # env = DiceAdventurePythonEnv(game, player, model_filename)
-    vec_env = DummyVecEnv(envs)
+    vec_env = SubprocVecEnv(envs)
+    # vec_env = DummyVecEnv(envs)
     model = PPO("MlpPolicy", vec_env, verbose=0, tensorboard_log=tensor_board_log)
     try:
         save_callback = SaveCallback(filename=model_filename)
@@ -51,20 +53,14 @@ def main(player="1S"):
     """
 
 
-def make_env(env_id: str, rank: int, seed: int = 0):
-    """
-    Utility function for multiprocessed env.
-
-    :param env_id: the environment ID
-    :param num_env: the number of environments you wish to have in subprocesses
-    :param seed: the inital seed for RNG
-    :param rank: index of the subprocess
-    """
+def make_env(env_id: str, player: str, model_filename: str, monitor_dir: str):
     def _init():
-        env = make(env_id, render_mode="human")
-        env.reset(seed=seed + rank)
-        return env
-    set_random_seed(seed)
+        return DiceAdventurePythonEnv(id_=env_id,
+                                       player=player,
+                                       model_filename=model_filename,
+                                       level=1, render=False, num_repeats=1000,
+                                       track_metrics=False, metrics_dir=monitor_dir)
+    set_random_seed(int(env_id))
     return _init
 
 
@@ -72,7 +68,7 @@ class SaveCallback(BaseCallback, ABC):
     def __init__(self, filename):
         super().__init__()
         self.time_steps = 0
-        self.threshold = 1000000
+        self.threshold = 250000
         self.filename = filename
         self.pbar = tqdm(total=NUM_TIME_STEPS)
 
