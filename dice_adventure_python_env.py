@@ -5,7 +5,6 @@ from dice_adventure import DiceAdventure
 from gymnasium import Env
 from gymnasium import spaces
 from json import dumps
-import jsondiff
 import numpy as np
 from os import makedirs
 from os import path

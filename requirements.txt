@@ -1,6 +1,7 @@
 gymnasium
 numpy
 rich
+stable-baselines3[extra]
 tabulate
 tensorflow
 tqdm
