@@ -113,7 +113,7 @@ class DiceAdventure:
         # If level should be repeated, decrement repeat counter
         elif self.lvl_repeats[self.curr_level_num]:
             self.lvl_repeats[self.curr_level_num] -= 1
-            # print(F"REPEATING LEVEL: {self.curr_level_num} | NUM REPEATS LEFT: {self.lvl_repeats[self.curr_level_num]}")
+            print(F"REPEATING LEVEL: {self.curr_level_num} | NUM REPEATS LEFT: {self.lvl_repeats[self.curr_level_num]}")
         else:
             # Otherwise, move on to next level
             self.curr_level_num += 1
@@ -191,6 +191,9 @@ class DiceAdventure:
             if p in self.object_pos:
                 x = self.object_pos[p]["x"]
                 y = self.object_pos[p]["y"]
+            if x is None or y is None:
+                x = self.players[p]["start_x"]
+                y = self.players[p]["start_y"]
 
             state["content"]["scene"].append(
                 {"name": self.players[p]["name"],
