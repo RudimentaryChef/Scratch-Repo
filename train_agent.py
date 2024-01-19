@@ -63,7 +63,7 @@ def make_env(env_id: str, player: str, model_filename: str, monitor_dir: str):
                                       server="local",
                                       # Kwargs
                                       level=1, render=False, num_repeats=1000, level_sampling=True, round_cap=250,
-                                      track_metrics=False, metrics_dir=monitor_dir)
+                                      track_metrics=True, metrics_dir=monitor_dir)
     set_random_seed(int(env_id))
     return _init
 
@@ -73,7 +73,7 @@ class SaveCallback(BaseCallback, ABC):
         super().__init__()
         self.time_steps = 0
         self.threshold = 250000
-        self.logfile_threshold = 1000
+        self.logfile_threshold = 10000
         self.model_filename = model_filename
         self.log_filename = log_filename
         self.version = 1

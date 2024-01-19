@@ -32,10 +32,10 @@ class DiceAdventurePythonEnv(Env):
         self.kwargs = kwargs
         self.player = player
         self.player_num = 0
-        self.players = {"3S": "Human", "1S": "Dwarf", "2S": "Giant"}
+        self.players = {"1S": "Dwarf", "2S": "Giant", "3S": "Human"}
         self.player_ids = ["1S", "2S", "3S"]
 
-        self.masks = {"1S": 1, "2S": 2, "3S": 3}
+        self.masks = {"1S": 1, "2S": 3, "3S": 2}
         self.max_mask_radius = max(self.masks.values())
         self.local_mask_radius = self.masks[self.player]
         self.action_map = {0: 'left', 1: 'right', 2: 'up', 3: 'down', 4: 'wait',
@@ -55,7 +55,7 @@ class DiceAdventurePythonEnv(Env):
         # The observation will be the coordinate of the agent
         # this can be described both by Discrete and Box space
         self.mask_size = self.max_mask_radius * 2 + 1
-        vector_len = self.mask_size * self.mask_size * len(self.get_type_positions()) * 4
+        vector_len = (self.mask_size * self.mask_size * len(self.get_type_positions()) * 4) + 6
         self.observation_space = spaces.Box(low=-5, high=100,
                                             shape=(vector_len,), dtype=np.float32)
 
@@ -199,12 +199,13 @@ class DiceAdventurePythonEnv(Env):
         # Get reward
         """
         Rewards:
-        1. Player getting goal + small
-        2. Players getting to tower after getting all goals + small
-        3. Winning combat
+        1. Player getting goal (0.5)
+        2. Player getting to tower after getting all players have collected goals (1.0)
+        3. Player winning combat (0.5) - TODO
+        4. Player placing pin on object (0.1) - TODO
 
         Penalties:
-        1. Player losing health
+        1. Player losing health (-1.0)
         2.
         """
         r = 0
@@ -212,9 +213,16 @@ class DiceAdventurePythonEnv(Env):
         if self.goal_reached(state, next_state):
             r += .5
         # Players getting to tower after getting all goals
-        if self.check_new_level(next_state):
+        if self.check_new_level(state, next_state):
             r += 1
-        if self.health_lost(p1, p2):
+        # Player winning combat
+        # if self.check_combat_outcome():
+        #     r += .5
+        # Player placing pin on object
+        # if self.check_pin_placement(p2, next_state):
+        #     r += .1
+        # Player losing health
+        if self.health_lost_or_dead(p1, p2):
             r -= 1
 
         if self.track_metrics:
@@ -245,19 +253,51 @@ class DiceAdventurePythonEnv(Env):
                 and (state["content"]["gameData"]["level"] != next_state["content"]["gameData"]["level"]
                      or state["content"]["gameData"]["num_repeats"] < next_state["content"]["gameData"]["num_repeats"]))
 
-    def check_new_level(self, next_state):
-        return self.prev_state["content"]["gameData"]["level"] != next_state["content"]["gameData"]["level"]
+    @staticmethod
+    def check_new_level(state, next_state):
+        return state["content"]["gameData"]["level"] != next_state["content"]["gameData"]["level"]
         #or \
         #    (self.prev_state["content"]["gameData"]["level"] == next_state["content"]["gameData"]["level"] and
         #     self.prev_state["content"]["gameData"]["num_repeats"] < next_state["content"]["gameData"]["num_repeats"])
 
-    def health_lost(self, p1, p2):
+    @staticmethod
+    def check_pin_placement(p1, p2, next_state):
+        x = p2["pinCursorX"]
+        y = p2["pinCursorY"]
+        # No pin placed
+        if x is None or y is None:
+            return False
+
+        for obj in next_state["content"]["scene"]:
+            # Pin was placed on object
+            if x == obj["x"] and y == obj["y"]:
+                # This check avoids giving repeated awards for placing pin. The reward should only be given once
+                # Check that the location of the pin cursor from one state to the next has changed
+                if p1["pinCursorX"] != p2["pinCursorX"] and p1["pinCursorY"] != p2["pinCursorY"]:
+                    return True
+        return False
+
+    def check_combat_outcome(self):
+        """
+        Checks the outcome of a combat event. Because combat is triggered while
+        players move, the resulting state of the final action plan being submitted
+        may include combat during player movement or enemy movement. Thus, this function
+        will check the previous and next states and use the following criteria to determine
+        combat outcome. Note, during this period it is possible the player has won and lost
+        combat multiple times.
+            1. Need to figure this out.
+        :return:
+        """
+        pass
+
+    @staticmethod
+    def health_lost_or_dead(p1, p2):
         """
         Checks difference between previous and next state to determine if a player has lost health or died
         :param next_state: The state resulting from the previous action
         :return: True if a player has lost health or died, False otherwise
         """
-        return (p1["health"] < p2["health"]) or (not p1["dead"] and p2["dead"])
+        return (p1["health"] < p2["health"]) or p2["dead"]  # or (not p1["dead"] and p2["dead"])
 
     @staticmethod
     def get_obj_from_scene_by_type(state, obj_type):
@@ -276,7 +316,8 @@ class DiceAdventurePythonEnv(Env):
         1. self.mask x self.mask (1-2)
         2. len(get_type_positions()) (3)
         3. 4 (4) - max number of object types is 4 [i.e., M4]
-        Total Est.: 5x5x10x4 = 1000
+        4. six additional state variables
+        Total Est.: 5x5x10x4+6= 1006
         :param state:
         :return:
         """
@@ -292,7 +333,7 @@ class DiceAdventurePythonEnv(Env):
             if i["type"] == self.players[player]:
                 x = i["x"]
                 y = i["y"]
-                # p_info = self.parse_player_state_data(i)
+                p_info = self.parse_player_state_data(i, state["content"]["scene"])
                 break
 
         x_bound_upper = x + self.local_mask_radius
@@ -319,28 +360,25 @@ class DiceAdventurePythonEnv(Env):
                     else:
                         grid[other_x][other_y][type_pos[obj["type"]]][0] = 1
 
-        return np.concatenate((np.ndarray.flatten(grid), p_info))
+        return np.concatenate((np.ndarray.flatten(grid), np.ndarray.flatten(p_info)))
 
     @staticmethod
-    def parse_player_state_data(p_info):
+    def parse_player_state_data(player_obj, scene):
         state_map = {
-            "action_points": {"pos": 0, "map": {}},
-            "max_points": {"pos": 1, "map": {}},
-            "health": {"pos": 2, "map": {}},
-            "status": {"pos": 3, "map": {"dead": 0, "alive": 1}},
-            "respawn_counter": {"pos": 4, "map": {None: -1, 0: 0, 1: 1}},
-            "goal_reached": {"pos": 5, "map": {False: 0, True: 1}},
-            "pin_path_x": {"pos": 6, "map": {None: -1}},
-            "pin_path_y": {"pos": 7, "map": {None: -1}},
-            "pin_finalized": {"pos": 8, "map": {False: 0, True: 1}},
-            "pin_plan_finalized": {"pos": 9, "map": {False: 0, True: 1}},
-            "action_path_x": {"pos": 10, "map": {None: -1}},
-            "action_path_y": {"pos": 11, "map": {None: -1}},
-            "action_plan_finalized": {"pos": 12, "map": {False: 0, True: 1}}
+            "actionPoints": {"pos": 0, "map": {}},
+            "health": {"pos": 1, "map": {}},
+            "dead": {"pos": 2, "map": {False: 0, True: 1}},
+            "reached": {"pos": 3, "map": {False: 0, True: 1}},
+            "pinCursorX": {"pos": 4, "map": {None: -1}},
+            "pinCursorY": {"pos": 5, "map": {None: -1}}
         }
         vector = np.zeros((len(state_map,)))
+        shrine = [i for i in scene if i["type"] == "shrine" and i["character"] == player_obj["name"]][0]
         for field in state_map:
-            data = p_info[field]
+            if field == "reached":
+                data = shrine[field]
+            else:
+                data = player_obj[field]
             # Value should come from mapping
             if data in state_map[field]["map"]:
                 vector[state_map[field]["pos"]] = state_map[field]["map"][data]

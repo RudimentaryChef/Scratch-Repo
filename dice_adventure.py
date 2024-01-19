@@ -215,7 +215,7 @@ class DiceAdventure:
                  "monsterDice": f"D{self.dice_rolls[p]['Monster']['val']}+{self.dice_rolls[p]['Monster']['const']}",
                  "trapDice": f"D{self.dice_rolls[p]['Trap']['val']}+{self.dice_rolls[p]['Trap']['const']}",
                  "stoneDice": f"D{self.dice_rolls[p]['Stone']['val']}+{self.dice_rolls[p]['Stone']['const']}",
-                 "health": 3,
+                 "health": self.players[p]["health"],
                  "dead": self.players[p]["status"] == "dead",
                  "actionPoints": self.players[p]["action_points"],
                  "actionPlan": self.players[p]["action_plan"]
@@ -282,13 +282,15 @@ class DiceAdventure:
         self.num_calls += 1
         # If all players have died, reset level
         if all([self.players[p]["status"] == "dead" for p in self.players]):
-            self.metrics[f"Level{self.curr_level_num}"]["team_deaths"].append([self._timestamp()])
+            if self.track_metrics:
+                self.metrics[f"Level{self.curr_level_num}"]["team_deaths"].append([self._timestamp()])
             self.restart_on_team_loss = True
             self.next_level()
             return
         # Check if need to save metrics
-        if self.num_calls % self.metrics_save_threshold == 0:
-            self._save_metrics()
+        if self.track_metrics:
+            if self.num_calls % self.metrics_save_threshold == 0:
+                self._save_metrics()
 
         if self.phases[self.phase_num] == "pin_planning":
             self.pin_planning(player, action)
@@ -981,7 +983,7 @@ class DiceAdventure:
         return {
             "health_loss": [],
             "deaths": [],
-            "pins": {"PA": [], "PB": [], "PC": [], "PD": []},
+            "pins": {"pinga": [], "pingb": [], "pingc": [], "pingd": []},
             "combat": {"win": {"Monster": {"S": [], "M": [], "L": [], "XL": []},
                                "Stone": [],
                                "Trap": []},
@@ -1016,7 +1018,7 @@ class DiceAdventure:
     {
         "health_loss": [],
         "deaths": [],
-        "pins": {"PA": [], "PB": [], "PC": [], "PD": []},
+        "pins": {"pinga": [], "pingb": [], "pingc": [], "pingd": []},
         "combat": {"win": {"Monster": {"S": [], "M": [], "L": [], "XL": []},
                            "Stone": [],
                            "Trap": []},
