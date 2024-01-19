@@ -1,8 +1,6 @@
 from collections import Counter
-from collections import defaultdict
 from copy import deepcopy
 from datetime import datetime
-from json import dumps
 from json import loads
 from os import makedirs
 from os import path
@@ -14,7 +12,8 @@ from tabulate import tabulate
 
 class DiceAdventure:
     def __init__(self, level=1, limit_levels=None, render=False, render_verbose=False, num_repeats=0,
-                 restart_on_finish=False, track_metrics=True, metrics_dir=None, metrics_save_threshold=10000):
+                 restart_on_finish=False, round_cap=0, level_sampling=False,
+                 track_metrics=True, metrics_dir=None, metrics_save_threshold=10000):
         # Game config
         self.config = loads(open("config.json", "r").read())
         # Level vars
@@ -31,6 +30,10 @@ class DiceAdventure:
         self.wall = self.config["OBJECT_INFO"]["Wall"]["regex"]
         self.terminated = False
         self.restart_on_team_loss = False
+        # Places a cap on the number of rounds per level
+        self.round_cap = round_cap
+        # Determines whether levels should be randomly sampled
+        self.level_sampling = level_sampling
 
         # Character/Object vars
         self.player_regex = r"\dS"
@@ -110,6 +113,10 @@ class DiceAdventure:
 
         if self.restart_on_team_loss:
             pass
+        # If level sampling turned on, randomly sample for next level
+        if self.level_sampling:
+            self.curr_level_num = choice(list(self.levels))
+
         # If level should be repeated, decrement repeat counter
         elif self.lvl_repeats[self.curr_level_num]:
             self.lvl_repeats[self.curr_level_num] -= 1
@@ -191,6 +198,7 @@ class DiceAdventure:
             if p in self.object_pos:
                 x = self.object_pos[p]["x"]
                 y = self.object_pos[p]["y"]
+            # In this case, player is not on board (dead) so just use start position
             if x is None or y is None:
                 x = self.players[p]["start_x"]
                 y = self.players[p]["start_y"]
@@ -244,8 +252,8 @@ class DiceAdventure:
                             info.update({
                                 "name": obj.split("(")[0],
                                 "type": "pin",
-                                "x": i,
-                                "y": j
+                                "x": i,  # j
+                                "y": j  # i
                             })
                             state["content"]["scene"].append(info)
                         else:
@@ -259,8 +267,8 @@ class DiceAdventure:
                                     break
 
                             info["name"] = obj.split("(")[0]
-                            info["x"] = i
-                            info["y"] = j
+                            info["x"] = i  # j
+                            info["y"] = j  # i
                             state["content"]["scene"].append(info)
         return state
 
@@ -298,7 +306,7 @@ class DiceAdventure:
         for p in self.players:
             if self.players[p]["status"] == "dead":
                 # Check if they've waited enough game cycles
-                if self.num_rounds- self.players[p]["death_round"] >= self.respawn_wait:
+                if self.num_rounds - self.players[p]["death_round"] >= self.respawn_wait:
                     # Player has waited long enough
                     self.players[p]["status"] = "alive"
                     self.players[p]["death_round"] = None
@@ -484,6 +492,10 @@ class DiceAdventure:
         if self.phases[self.phase_num] == "enemy_execution":
             self.execute_enemy_plans()
             self.num_rounds += 1
+            # If a cap has been placed on the number of rounds per level and that cap has been exceeded,
+            # move on to next level
+            if self.round_cap and self.num_rounds > self.round_cap:
+                self.next_level()
 
     def execute_plans(self):
         """
@@ -806,6 +818,16 @@ class DiceAdventure:
         return False
 
     def update_location_by_direction(self, action, x, y):
+        """
+        Updates character location based on given directional action. Note that when a 2D array is printed,
+        moving "up" is equivalent to going down one index in the list of rows and vice versa for
+        moving "down". Therefore, "up" decreases the x coordinate by 1 and "down" increases the
+        x coordinate by 1.
+        :param action:
+        :param x:
+        :param y:
+        :return:
+        """
         if action == "left" and self.check_valid_move(x, y - 1):
             y -= 1
         elif action == "right" and self.check_valid_move(x, y + 1):
@@ -885,7 +907,7 @@ class DiceAdventure:
                         obj_id = f"{obj}({self.counts[obj]})"
                     else:
                         obj_id = obj
-                    objs[obj_id] = {"x": i, "y": j}
+                    objs[obj_id] = {"x": i, "y": j}  # {"x": j, "y": i}
                     # Set what's in grid to obj_id
                     self.curr_level[i][j] = obj_id
         return objs

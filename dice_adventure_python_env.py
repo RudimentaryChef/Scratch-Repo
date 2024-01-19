@@ -11,6 +11,7 @@ from os import path
 from random import choice
 from stable_baselines3 import PPO
 from time import sleep
+import unity_socket
 
 """
 Assumptions:
@@ -19,7 +20,7 @@ Assumptions:
 
 
 class DiceAdventurePythonEnv(Env):
-    def __init__(self, id_, player, model_filename, track_metrics=False, **kwargs):
+    def __init__(self, id_, player, model_filename, track_metrics=False, server="local", **kwargs):
         """
         :param game: A Dice Adventure game object
         'player'
@@ -38,7 +39,8 @@ class DiceAdventurePythonEnv(Env):
         self.max_mask_radius = max(self.masks.values())
         self.local_mask_radius = self.masks[self.player]
         self.action_map = {0: 'left', 1: 'right', 2: 'up', 3: 'down', 4: 'wait',
-                           5: 'submit', 6: 'PA', 7: 'PB', 8: 'PC', 9: 'PD', 10: 'undo'}
+                           5: 'submit', 6: 'pinga', 7: 'pingb', 8: 'pingc', 9: 'pingd', 10: 'undo'}
+        # pingA, pingB, etc.
 
         self.goals = {"1S": False, "2S": False, "3S": False}
         self.pin_mapping = {"A": 0, "B": 1, "C": 2, "D": 3}
@@ -64,7 +66,17 @@ class DiceAdventurePythonEnv(Env):
         self.metrics_save_threshold = 10000
         self.rewards_tracker = []
 
+        # Server type
+        self.server = server
+        self.unity_socket_url = "ws://localhost:4649/hmt/{}"
+        if self.server == "local":
+            self.create_game()
+
     def step(self, action):
+        switch = {"local": self.step_local_server, "unity": self.step_unity_server}
+        return switch[self.server](action)
+
+    def step_local_server(self, action):
         # Update model for other players
         self.time_steps += 1
         if self.time_steps % self.load_threshold == 0:
@@ -102,6 +114,50 @@ class DiceAdventurePythonEnv(Env):
 
         return new_obs, reward, terminated, truncated, info
 
+    def step_unity_server(self, action):
+        # Update model for other players
+        self.time_steps += 1
+        if self.time_steps % self.load_threshold == 0:
+            if path.exists(self.model_filename):
+                self.model = PPO.load(self.model_filename)
+        game_action = self.action_map[action]
+        # Execute action of agent
+        url = self.unity_socket_url.format(self.players[self.player].lower())
+        unity_socket.execute_action(url, game_action)
+        # self.game.execute_action(self.player, game_action)
+
+        # Get next state
+        # next_state = self.game.get_state()
+        next_state = unity_socket.get_state(url)
+        if self.prev_state is None:
+            self.prev_state = deepcopy(next_state)
+        p1 = self.get_obj_from_scene_by_type(self.prev_state, self.players[self.player])
+        p2 = self.get_obj_from_scene_by_type(next_state, self.players[self.player])
+
+        # If player is dead, must wait until alive again
+        while p2["dead"]:
+            self.play_others(game_action, self.prev_state, next_state)
+            self.prev_state = deepcopy(next_state)
+            # next_state = self.game.get_state()
+            next_state = unity_socket.get_state(url)
+            p2 = self.get_obj_from_scene_by_type(next_state, self.players[self.player])
+            break
+        else:
+            # Simulate other players
+            self.play_others(game_action, self.prev_state, next_state)
+            self.prev_state = next_state
+
+        # new_obs, reward, terminated, truncated, info
+        new_obs = self.get_observation(next_state)
+        reward = self.get_reward(p1, p2, self.prev_state, next_state)
+        terminated = next_state["status"] == "Done"
+        truncated = False
+        info = {}
+
+        self.save_metrics()
+
+        return new_obs, reward, terminated, truncated, info
+
     def play_others(self, game_action, state, next_state):
         # Play as other players (temporary)
         for p in self.players:
@@ -115,8 +171,14 @@ class DiceAdventurePythonEnv(Env):
                     a, _states = self.model.predict(self.get_observation(next_state, player=p))
                 else:
                     a = choice(self.action_map)
-                self.game.execute_action(p, a)
-                next_state = self.game.get_state()
+                if self.server == "local":
+                    self.game.execute_action(p, a)
+                    next_state = self.game.get_state()
+                else:
+                    url = self.unity_socket_url.format(self.players[self.player].lower())
+                    unity_socket.execute_action(url, game_action)
+                    next_state = unity_socket.get_state(url)
+
 
     def close(self):
         pass
@@ -126,9 +188,12 @@ class DiceAdventurePythonEnv(Env):
             self.game.render()
 
     def reset(self, **kwargs):
+        self.create_game()
+        return self.get_observation(self.prev_state), {}
+
+    def create_game(self):
         self.game = DiceAdventure(**self.kwargs)
         self.prev_state = self.game.get_state()
-        return self.get_observation(self.prev_state), {}
 
     def get_reward(self, p1, p2, state, next_state):
         # Get reward
@@ -153,11 +218,12 @@ class DiceAdventurePythonEnv(Env):
             r -= 1
 
         if self.track_metrics:
+            # [timestep, timestamp, reward, level, repeat_number, player]
             self.rewards_tracker.append([self.time_steps,
                                          datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f'),
                                          str(r),
                                          state["content"]["gameData"]["level"],
-                                         state["content"]["gameData"]["num_repeats"],
+                                         # state["content"]["gameData"]["num_repeats"],
                                          self.player])
         #if r > 0:
         #    print(r)
@@ -180,9 +246,10 @@ class DiceAdventurePythonEnv(Env):
                      or state["content"]["gameData"]["num_repeats"] < next_state["content"]["gameData"]["num_repeats"]))
 
     def check_new_level(self, next_state):
-        return self.prev_state["content"]["gameData"]["level"] < next_state["content"]["gameData"]["level"] or \
-            (self.prev_state["content"]["gameData"]["level"] == next_state["content"]["gameData"]["level"] and
-             self.prev_state["content"]["gameData"]["num_repeats"] < next_state["content"]["gameData"]["num_repeats"])
+        return self.prev_state["content"]["gameData"]["level"] != next_state["content"]["gameData"]["level"]
+        #or \
+        #    (self.prev_state["content"]["gameData"]["level"] == next_state["content"]["gameData"]["level"] and
+        #     self.prev_state["content"]["gameData"]["num_repeats"] < next_state["content"]["gameData"]["num_repeats"])
 
     def health_lost(self, p1, p2):
         """
