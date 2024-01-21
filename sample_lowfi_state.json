@@ -1,0 +1,383 @@
+{
+  "command": "get_state",
+  "status": "OK",
+  "message": "Full State",
+  "content": {
+    "gameData": {
+      "boardWidth": 10,
+      "boardHeight": 10,
+      "level": 5,
+      "num_repeats": 0,
+      "currentPhase": "pin_planning",
+      "restart_on_team_loss": false
+    },
+    "scene": [
+      {
+        "name": "Dwarf",
+        "characterId": 1,
+        "type": "Dwarf",
+        "x": 9,
+        "y": 0,
+        "pinCursorX": null,
+        "pinCursorY": null,
+        "sightRange": 3,
+        "monsterDice": "D8+0",
+        "trapDice": "D6+0",
+        "stoneDice": "D6+0",
+        "health": 3,
+        "dead": false,
+        "actionPoints": 6,
+        "actionPlan": []
+      },
+      {
+        "type": "shrine",
+        "reached": false,
+        "character": "Dwarf",
+        "x": 1,
+        "y": 4
+      },
+      {
+        "name": "Giant",
+        "characterId": 2,
+        "type": "Giant",
+        "x": 9,
+        "y": 1,
+        "pinCursorX": null,
+        "pinCursorY": null,
+        "sightRange": 3,
+        "monsterDice": "D6+0",
+        "trapDice": "D8+0",
+        "stoneDice": "D4+0",
+        "health": 3,
+        "dead": false,
+        "actionPoints": 6,
+        "actionPlan": []
+      },
+      {
+        "type": "shrine",
+        "reached": false,
+        "character": "Giant",
+        "x": 5,
+        "y": 2
+      },
+      {
+        "name": "Human",
+        "characterId": 3,
+        "type": "Human",
+        "x": 8,
+        "y": 0,
+        "pinCursorX": null,
+        "pinCursorY": null,
+        "sightRange": 3,
+        "monsterDice": "D6+0",
+        "trapDice": "D4+0",
+        "stoneDice": "D8+0",
+        "health": 3,
+        "dead": false,
+        "actionPoints": 6,
+        "actionPlan": []
+      },
+      {
+        "type": "shrine",
+        "reached": false,
+        "character": "Human",
+        "x": 7,
+        "y": 8
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 0,
+        "y": 0
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 0,
+        "y": 1
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 0,
+        "y": 8
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 0,
+        "y": 9
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 1,
+        "y": 0
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 1,
+        "y": 2
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 1,
+        "y": 3
+      },
+      {
+        "type": "empty_space",
+        "name": "1G",
+        "x": 1,
+        "y": 4
+      },
+      {
+        "type": "Stone",
+        "name": "S1",
+        "x": 1,
+        "y": 6
+      },
+      {
+        "type": "S_monster",
+        "name": "M1",
+        "x": 1,
+        "y": 7
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 2,
+        "y": 0
+      },
+      {
+        "type": "Trap",
+        "name": "T1",
+        "x": 2,
+        "y": 3
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 2,
+        "y": 4
+      },
+      {
+        "type": "S_monster",
+        "name": "M1",
+        "x": 2,
+        "y": 5
+      },
+      {
+        "type": "Stone",
+        "name": "S1",
+        "x": 2,
+        "y": 8
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 3,
+        "y": 0
+      },
+      {
+        "type": "L_monster",
+        "name": "M3",
+        "x": 3,
+        "y": 2
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 3,
+        "y": 4
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 3,
+        "y": 5
+      },
+      {
+        "type": "S_monster",
+        "name": "M1",
+        "x": 3,
+        "y": 7
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 3,
+        "y": 8
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 3,
+        "y": 9
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 4,
+        "y": 2
+      },
+      {
+        "type": "empty_space",
+        "name": "**",
+        "x": 4,
+        "y": 3
+      },
+      {
+        "type": "Trap",
+        "name": "T1",
+        "x": 4,
+        "y": 4
+      },
+      {
+        "type": "Trap",
+        "name": "T1",
+        "x": 5,
+        "y": 0
+      },
+      {
+        "type": "empty_space",
+        "name": "2G",
+        "x": 5,
+        "y": 2
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 5,
+        "y": 3
+      },
+      {
+        "type": "S_monster",
+        "name": "M1",
+        "x": 5,
+        "y": 5
+      },
+      {
+        "type": "Stone",
+        "name": "S1",
+        "x": 5,
+        "y": 6
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 5,
+        "y": 7
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 6,
+        "y": 1
+      },
+      {
+        "type": "Trap",
+        "name": "T1",
+        "x": 6,
+        "y": 2
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 6,
+        "y": 3
+      },
+      {
+        "type": "M_monster",
+        "name": "M2",
+        "x": 6,
+        "y": 4
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 6,
+        "y": 7
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 6,
+        "y": 8
+      },
+      {
+        "type": "S_monster",
+        "name": "M1",
+        "x": 7,
+        "y": 0
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 7,
+        "y": 2
+      },
+      {
+        "type": "Stone",
+        "name": "S1",
+        "x": 7,
+        "y": 3
+      },
+      {
+        "type": "Trap",
+        "name": "T1",
+        "x": 7,
+        "y": 5
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 7,
+        "y": 6
+      },
+      {
+        "type": "empty_space",
+        "name": "3G",
+        "x": 7,
+        "y": 8
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 7,
+        "y": 9
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 8,
+        "y": 4
+      },
+      {
+        "type": "wall",
+        "name": "##",
+        "x": 8,
+        "y": 5
+      },
+      {
+        "type": "L_monster",
+        "name": "M3",
+        "x": 8,
+        "y": 6
+      },
+      {
+        "type": "Trap",
+        "name": "T1",
+        "x": 8,
+        "y": 7
+      },
+      {
+        "type": "M_monster",
+        "name": "M2",
+        "x": 9,
+        "y": 4
+      }
+    ]
+  }
+}
