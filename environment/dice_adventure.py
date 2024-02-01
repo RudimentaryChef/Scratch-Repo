@@ -3,8 +3,6 @@ from datetime import datetime
 from json import loads
 from os import makedirs
 from os import path
-from random import choice
-from random import shuffle
 import re
 from environment.classes.board import Board
 from environment.classes.objects import *
@@ -14,32 +12,36 @@ class DiceAdventure:
     def __init__(self, level=1, limit_levels=None, render=False, render_verbose=False, num_repeats=0,
                  restart_on_finish=False, round_cap=0, level_sampling=False,
                  track_metrics=True, metrics_dir=None, metrics_save_threshold=10000):
-        # Game config
+        #################
+        # GAME METADATA #
+        #################
         self.config = loads(open("environment/config.json", "r").read())
-        # Level vars
+        self.terminated = False
+
+        ##############
+        # LEVEL VARS #
+        ##############
+        # Level Setup
         self.levels = {}
         self.limit_levels = limit_levels if limit_levels else [int(i) for i in list(self.config["LEVELS"].keys())]
         self.get_levels()
+        # Level Control
         self.curr_level_num = level if level in self.limit_levels else self.limit_levels[0]
         self.curr_level = deepcopy(self.levels[self.curr_level_num])
         self.num_repeats = num_repeats
-        self.restart_on_finish = restart_on_finish
         self.lvl_repeats = {lvl: self.num_repeats for lvl in self.levels}
-        self.empty = self.config["OBJECT_INFO"]["Empty Space"]["regex"]
-        self.tower = self.config["OBJECT_INFO"]["Tower"]["regex"]
-        self.wall = self.config["OBJECT_INFO"]["Wall"]["regex"]
-        self.terminated = False
+        self.restart_on_finish = restart_on_finish
         self.restart_on_team_loss = False
+        # Object codes
+        self.empty = ".."
+        self.tower = "**"
+        self.wall = "##"
+
         # Places a cap on the number of rounds per level
         self.round_cap = round_cap
         # Determines whether levels should be randomly sampled
         self.level_sampling = level_sampling
-
-        # Character/Object vars
-        self.player_regex = r"\dS"
-        self.enemy_regexes = {"Monster": self.config["OBJECT_INFO"]["Monster"]["regex"],
-                              "Trap": self.config["OBJECT_INFO"]["Trap"]["regex"],
-                              "Stone": self.config["OBJECT_INFO"]["Stone"]["regex"]}
+        self.respawn_wait = 2
 
         ##########
         # BOARD #
@@ -49,12 +51,6 @@ class DiceAdventure:
                            object_positions=self.curr_level,
                            config=self.config)
         self.board.print_board()
-        exit(0)
-
-        ################
-        # PLAYERS VARS #
-        ################
-        self.player_codes = [""]
 
         ##############
         # PHASE VARS #
@@ -68,8 +64,8 @@ class DiceAdventure:
         # Action Planning
         self.valid_move_actions = self.config["ACTIONS"]["VALID_MOVE_ACTIONS"]
 
-        self.dice_rolls = self.config["DICE_ROLLS"]
-        self.respawn_wait = 2
+        #self.dice_rolls = self.config["DICE_ROLLS"]
+        #
         # Rendering
         self.render_game = render
         self.render_verbose = render_verbose
@@ -91,11 +87,9 @@ class DiceAdventure:
         self.metrics_save_threshold = metrics_save_threshold
         # {1: {"Human": {"health_lost": ['2023-11-20 09:43:54', ]
 
-        ###################
-        # INITIALIZE GAME #
-        ###################
-        self.pin_planning_init()
-
+    #################
+    # LEVEL CONTROL #
+    #################
     def get_levels(self):
         levels = deepcopy(self.config["LEVELS"])
         self.levels = {int(k): [[row[i:i + 2] for i in range(0, len(row), 2)] for row in v.strip().split("\n")]
@@ -141,9 +135,10 @@ class DiceAdventure:
         # Set current level
         self.curr_level = deepcopy(self.levels[self.curr_level_num])
         # Re-initialize values
-        self.counts = Counter()
-        self.object_pos = self.get_object_locations()
-        self.players = self.get_init_player_info()
+        self.board = Board(width=len(self.curr_level),
+                           height=len(self.curr_level[0]),
+                           object_positions=self.curr_level,
+                           config=self.config)
         self.phase_num = 0
         self.num_rounds = 0
 
@@ -166,10 +161,8 @@ class DiceAdventure:
                     "boardWidth": len(self.curr_level[0]),
                     "boardHeight": len(self.curr_level),
                     "level": self.curr_level_num,
-                    "num_repeats": self.num_repeats - self.lvl_repeats[self.curr_level_num],
+                    # "num_repeats": self.num_repeats - self.lvl_repeats[self.curr_level_num],
                     "currentPhase": self.phases[self.phase_num],
-                    # "game_over": self.terminated,
-                    "restart_on_team_loss": self.restart_on_team_loss
                 },
                 "scene": []
             }
@@ -178,83 +171,53 @@ class DiceAdventure:
         if self.restart_on_team_loss:
             self.restart_on_team_loss = False
 
-        for p in self.players:
-            x = y = None
-            if p in self.object_pos:
-                x = self.object_pos[p]["x"]
-                y = self.object_pos[p]["y"]
-            # In this case, player is not on board (dead) so just use start position
-            if x is None or y is None:
-                x = self.players[p]["start_x"]
-                y = self.players[p]["start_y"]
+        for _, obj_dict in self.board.board:
+            for o in obj_dict:
+                obj = obj_dict[o]
 
-            state["content"]["scene"].append(
-                {"name": self.players[p]["name"],
-                 "characterId": int(p[0]),
-                 "type": self.players[p]["type"],
-                 "x": x,
-                 "y": y,
-                 "pinCursorX": self.players[p]["pin_path_x"],
-                 "pinCursorY": self.players[p]["pin_path_y"],
-                 "sightRange": self.players[p]["sight_range"],
-                 "monsterDice": f"D{self.dice_rolls[p]['Monster']['val']}+{self.dice_rolls[p]['Monster']['const']}",
-                 "trapDice": f"D{self.dice_rolls[p]['Trap']['val']}+{self.dice_rolls[p]['Trap']['const']}",
-                 "stoneDice": f"D{self.dice_rolls[p]['Stone']['val']}+{self.dice_rolls[p]['Stone']['const']}",
-                 "health": self.players[p]["health"],
-                 "dead": self.players[p]["status"] == "dead",
-                 "actionPoints": self.players[p]["action_points"],
-                 "actionPlan": self.players[p]["action_plan"]
-                 }
-            )
-            # Add goal information
-            shrine = {
-                "type": "shrine",
-                "reached": self.players[p]["goal_reached"],
-                "character": self.players[p]["name"]
-            }
-            shrine_name = p[0] + "G"
-            if shrine_name in self.object_pos:
-                shrine["x"] = self.object_pos[shrine_name]["x"]
-                shrine["y"] = self.object_pos[shrine_name]["y"]
-            else:
-                shrine["x"] = None
-                shrine["y"] = None
-            state["content"]["scene"].append(shrine)
-
-        size_mapping = {"1": "S", "2": "M", "3": "L", "4": "XL"}
-        obj_info = deepcopy(self.config["OBJECT_INFO"])
-        for i in range(len(self.curr_level)):
-            for j in range(len(self.curr_level[0])):
-                objs = self.curr_level[i][j].split("-")
-                for obj in objs:
-                    info = {}
-                    # Get current info about players
-                    if obj not in self.players and obj != self.empty:
-
-                        # Check if object is a pin
-                        # if re.match("(P(A|B|C|D)\\(\\dS\\))", obj):
-                        if obj[0] == "P":
-                            info.update({
-                                "name": obj.split("(")[0],
-                                "type": "pin",
-                                "x": i,  # j
-                                "y": j  # i
-                            })
-                            state["content"]["scene"].append(info)
-                        else:
-                            # Get info about other game objects
-                            for obj_name in obj_info:
-                                if re.match(obj_info[obj_name]["regex"], obj):
-                                    if obj[0] == "M":
-                                        info["type"] = size_mapping[obj[1]] + "_" + obj_info[obj_name].get("type")
-                                    else:
-                                        info["type"] = obj_info[obj_name].get("type")
-                                    break
-
-                            info["name"] = obj.split("(")[0]
-                            info["x"] = i  # j
-                            info["y"] = j  # i
-                            state["content"]["scene"].append(info)
+                ele = {"type": obj.type, "x": obj.x, "y": obj.y}
+                # Walls
+                if obj is None:
+                    pass
+                elif isinstance(obj, Player):
+                    ele.update({
+                     "name": obj.name,
+                     "characterId": int(obj.name[0]),
+                     "pinCursorX": obj.pin_x,
+                     "pinCursorY": obj.pin_y,
+                     "sightRange": obj.sight_range,
+                     "monsterDice": f"D{obj.dice_rolls['Monster']['val']}+{obj.dice_rolls['Monster']['const']}",
+                     "trapDice": f"D{obj.dice_rolls['Trap']['val']}+{obj.dice_rolls['Trap']['const']}",
+                     "stoneDice": f"D{obj.dice_rolls['Stone']['val']}+{obj.dice_rolls['Stone']['const']}",
+                     "health": obj.health,
+                     "dead": not obj.alive,
+                     "actionPoints": obj.action_points,
+                     "actionPlan": obj.action_plan
+                     })
+                # Goals
+                elif isinstance(obj, Shrine):
+                    ele.update({
+                        "reached": obj.reached,
+                        "character": obj.player
+                    })
+                elif isinstance(obj, Tower):
+                    ele.update({
+                        "subgoalCount": obj.subgoal_count
+                    })
+                # Enemies
+                elif isinstance(obj, Enemy):
+                    ele.update({
+                        "name": obj.index,
+                        "actionPoints": self.config["OBJECT_INFO"]["Monster"]["moves"][obj.obj_code[1]],
+                        "combatDice": f"D{obj.dice_rolls['val']}+{obj.dice_rolls['const']}"
+                    })
+                # Pins
+                elif isinstance(obj, Pin):
+                    ele.update({
+                        "name": obj.obj_code,
+                        "placedBy": obj.placed_by
+                    })
+                state["content"]["scene"].append(ele)
         return state
 
     def execute_action(self, player, action):
@@ -299,7 +262,7 @@ class DiceAdventure:
                     # Player has waited long enough
                     self.board.objects[p].alive = True
                     self.board.objects[p].death_round = None
-                    self.place(p, x=self.board.objects[p].start_x, y=self.board.objects[p].start_y)
+                    self.board.place(p, x=self.board.objects[p].start_x, y=self.board.objects[p].start_y)
 
     ##############################
     # PHASE PLANNING & EXECUTION #
@@ -333,7 +296,7 @@ class DiceAdventure:
         if self.board.objects[player].action_points > 0:
             # elif self.players[player]["pin_type"] is None:
             if action in self.directions:
-                x, y = self.update_location_by_direction(action,
+                x, y = self.board.update_location_by_direction(action,
                                                          self.board.objects[player].pin_x,
                                                          self.board.objects[player].pin_y)
                 self.board.objects[player].pin_x = x
@@ -341,7 +304,7 @@ class DiceAdventure:
 
             elif action in self.valid_pin_types:
                 # Place new pin
-                self.place(self.pin_code_mapping[action],
+                self.board.place(self.pin_code_mapping[action],
                            self.board.objects[player].pin_x,
                            self.board.objects[player].pin_y)
                 self.board.objects[player].action_points -= 1
@@ -427,17 +390,16 @@ class DiceAdventure:
                          if self.board.objects[p].alive]):
             # Change to execution phase
             self.update_phase()
-            res = self.execute_plans()
-            if res != "next_level":
-                # Reset values
-                for p in self.players:
-                    # Remove pins from grid if player placed one
-                    if self.players[p]["pin_type"] and self.players[p]["pin_type"] != "no-pin":
-                        # pin_regex = self.create_pin_regex(self.players[p]['pin_type'])
-                        # self.remove(pin_regex, x=self.players[p]["pin_x"], y=self.players[p]["pin_y"], as_regex=True)
-                        self.remove(self.players[p]['pin_type'], x=self.players[p]["pin_x"], y=self.players[p]["pin_y"])
-                    self.reset_player_values(p)
-                self.update_phase()
+            # Move to next level if needed
+            if self.execute_plans():
+                self.next_level()
+            # Otherwise, remove pins and reset player values
+            else:
+                for o in self.board.objects:
+                    if isinstance(self.board.objects[o], Player):
+                        self.board.objects[o].reset_phase_values()
+                    elif isinstance(self.board.objects[o], Pin):
+                        self.board.remove(o)
 
     def update_phase(self):
         """
@@ -477,18 +439,19 @@ class DiceAdventure:
                         self.board.objects[p].goal_reached = True
                         # Destroy goal
                         self.board.remove(goal_code)
+                        # Increment subgoal counter
+                        self.board.objects[self.tower].subgoal_count += 1
                     # Check if player has reached tower
                     if self.board.at(p, self.tower) and \
                             all([self.board.objects[p].goal_reached for i in self.config["PLAYER_CODES"]]):
-                        self.next_level()
-                        return "next_level"
+                        return True
                     # Render result of moves
                     if self.render_game:
                         self.render()
             # CHECK IF PLAYER AND MONSTER/TRAP/STONE IN SAME AREA AFTER
             # EACH PASS OF EACH CHARACTER MOVES
             self.check_combat(i)
-        return None
+        return False
 
     def execute_enemy_plans(self):
         """
@@ -553,8 +516,7 @@ class DiceAdventure:
     def check_combat(self, step_index=None):
         """
         Checks if players and enemies are co-located which would initiate combat
-        :param x: The x position of the grid to check
-        :param y: The y position of the grid to check
+        :param step_index: Determines the position in the action sequence
         :return: N/A
         """
         # Gets location of all players. If multiple players end up on the same grid square, using a set will ensure
@@ -582,7 +544,7 @@ class DiceAdventure:
         :return: N/A
         """
         # Enemies are always all the same type
-        enemy_type = enemies[0].type
+        enemy_type = enemies[0].name
         player_rolls = sum([p.get_dice_roll(enemy_type) for p in players])
         enemy_rolls = sum([e.get_dice_roll() for e in enemies])
 
@@ -653,47 +615,6 @@ class DiceAdventure:
             # Traps are destroyed
             if enemy_type == "Trap":
                 self.board.multi_remove(enemies)
-
-    def _metrics_combat_loss(self, player, enemy_type, enemies):
-        if self.track_metrics:
-            if enemy_type == "Monster":
-                self._track_player_metrics(player.name, metric_name="health_loss")
-                sizes = [
-                    self.config["OBJECT_INFO"]["Monster"]["size_mapping"][e.split("(")[0]].split("_")[0]
-                    for e in enemies]
-                for size in sizes:
-                    self._track_player_metrics(player.name, metric_name="combat", combat_outcome="lose",
-                                               enemy_type=enemy_type, enemy_size=size)
-            elif enemy_type == "Trap":
-                self._track_player_metrics(player.name, metric_name="health_loss")
-                self._track_player_metrics(player.name, metric_name="combat", combat_outcome="lose",
-                                           enemy_type=enemy_type)
-            elif enemy_type == "Stone":
-                self._track_player_metrics(player.name, metric_name="combat", combat_outcome="lose",
-                                           enemy_type=enemy_type)
-
-    def _track_pins(self, player_name, pin_type):
-        pass
-
-    def get_object_locations(self):
-        """
-        Gets the locations of objects on the grid
-        :return: Dict
-        """
-        objs = {}
-        for i in range(len(self.curr_level)):
-            for j in range(len(self.curr_level[0])):
-                obj = self.curr_level[i][j]
-                if obj not in [self.wall, self.empty]:
-                    self.counts[obj] += 1
-                    if self.counts[obj] > 1:
-                        obj_id = f"{obj}({self.counts[obj]})"
-                    else:
-                        obj_id = obj
-                    objs[obj_id] = {"x": i, "y": j}  # {"x": j, "y": i}
-                    # Set what's in grid to obj_id
-                    self.curr_level[i][j] = obj_id
-        return objs
 
     #############
     # RENDERING #
@@ -774,6 +695,27 @@ class DiceAdventure:
                             "Trap": []}}
     }
     """
+
+    def _metrics_combat_loss(self, player, enemy_type, enemies):
+        if self.track_metrics:
+            if enemy_type == "Monster":
+                self._track_player_metrics(player.name, metric_name="health_loss")
+                sizes = [
+                    self.config["OBJECT_INFO"]["Monster"]["size_mapping"][e.split("(")[0]].split("_")[0]
+                    for e in enemies]
+                for size in sizes:
+                    self._track_player_metrics(player.name, metric_name="combat", combat_outcome="lose",
+                                               enemy_type=enemy_type, enemy_size=size)
+            elif enemy_type == "Trap":
+                self._track_player_metrics(player.name, metric_name="health_loss")
+                self._track_player_metrics(player.name, metric_name="combat", combat_outcome="lose",
+                                           enemy_type=enemy_type)
+            elif enemy_type == "Stone":
+                self._track_player_metrics(player.name, metric_name="combat", combat_outcome="lose",
+                                           enemy_type=enemy_type)
+
+    def _track_pins(self, player_name, pin_type):
+        pass
 
     def _save_metrics(self):
         self._save_recursive(self.metrics)
