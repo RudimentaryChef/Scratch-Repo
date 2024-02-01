@@ -28,6 +28,9 @@ Methods:
 """
 Effects of operators for dice adventure must generate 'SAI' tuples. The code will check the working memory to determine
 if an SAI tuple has been generated and submit it to the game, then remove the SAI tuple.
+
+self.action_map = {0: 'left', 1: 'right', 2: 'up', 3: 'down', 4: 'wait',
+                   5: 'submit', 6: 'pinga', 7: 'pingb', 8: 'pingc', 9: 'pingd', 10: 'undo'}
 """
 move_left = Operator(
     head=('move-left', 'p', '?w'),

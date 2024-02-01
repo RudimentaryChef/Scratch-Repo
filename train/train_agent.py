@@ -1,8 +1,8 @@
 from abc import ABC
 from datetime import datetime
 # from dice_adventure import DiceAdventure
-from dice_adventure import TerminationException
-from dice_adventure_python_env import DiceAdventurePythonEnv
+from environment.dice_adventure import TerminationException
+from environment.dice_adventure_python_env import DiceAdventurePythonEnv
 # from gymnasium.vector import AsyncVectorEnv
 # from gymnasium.vector import SyncVectorEnv
 # from gymnasium import make
@@ -22,9 +22,9 @@ NUM_TIME_STEPS = 100000000000
 
 def main(player="1S"):
     tensor_board_log = "./dice_adventure_tensorboard/"
-    monitor_dir = "./monitoring/"
+    monitor_dir = "../monitoring/"
     model_filename = "dice_adventure_ppo_model"
-    log_filename = "dice_adventure_ppo_model_logfile.txt"
+    log_filename = "model/dice_adventure_ppo_model_logfile.txt"
     makedirs(tensor_board_log, exist_ok=True)
 
     # game = DiceAdventure(level=1, render=False, num_repeats=100)
@@ -46,12 +46,6 @@ def main(player="1S"):
 
     model.save(model_filename)
     print("DONE TRAINING!")
-    """
-    obs = env.reset()
-    while True:
-        action, _states = model.predict(obs)
-        obs, rewards, dones, info = env.step(action)
-    """
 
 
 def make_env(env_id: str, player: str, model_filename: str, monitor_dir: str):
