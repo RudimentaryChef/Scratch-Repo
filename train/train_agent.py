@@ -24,20 +24,22 @@ def main(player="1S"):
     tensor_board_log = "./dice_adventure_tensorboard/"
     monitor_dir = "../monitoring/"
     model_filename = "dice_adventure_ppo_model"
-    log_filename = "model/dice_adventure_ppo_model_logfile.txt"
+    model_dir = "train/model/"
+    log_filename = "train/model/dice_adventure_ppo_model_logfile.txt"
     makedirs(tensor_board_log, exist_ok=True)
 
     # game = DiceAdventure(level=1, render=False, num_repeats=100)
     num_env_copies = 3
     players = ["1S", "2S", "3S"]
     envs = [
-        make_env(str(i*num_env_copies+j), p, model_filename, monitor_dir)
+        make_env(str(i*num_env_copies+j), p, model_dir, monitor_dir)
         for i, p in enumerate(players) for j in range(num_env_copies)
     ]
     # env = DiceAdventurePythonEnv(game, player, model_filename)
     vec_env = SubprocVecEnv(envs)
     # vec_env = DummyVecEnv(envs)
-    model = PPO("MlpPolicy", vec_env, verbose=0, tensorboard_log=tensor_board_log, device="cpu")
+    model = PPO("MlpPolicy", vec_env, verbose=0, tensorboard_log=tensor_board_log, device="cpu", n_steps=8192,
+                batch_size=256)
     try:
         save_callback = SaveCallback(model_filename=model_filename, log_filename=log_filename)
         model.learn(total_timesteps=NUM_TIME_STEPS, callback=save_callback, progress_bar=False)
@@ -48,13 +50,14 @@ def main(player="1S"):
     print("DONE TRAINING!")
 
 
-def make_env(env_id: str, player: str, model_filename: str, monitor_dir: str):
+def make_env(env_id: str, player: str, model_dir: str, monitor_dir: str):
     def _init():
         return DiceAdventurePythonEnv(id_=env_id,
                                       player=player,
-                                      model_filename=model_filename,
+                                      model_dir=model_dir,
                                       # server="unity",
                                       server="local",
+                                      set_random_seed=True,
                                       # Kwargs
                                       level=1, render=False, num_repeats=1000, level_sampling=True, round_cap=250,
                                       track_metrics=True, metrics_dir=monitor_dir)

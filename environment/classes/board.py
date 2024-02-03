@@ -1,5 +1,6 @@
 from collections import Counter
 from collections import defaultdict
+from random import shuffle
 import re
 from tabulate import tabulate
 from environment.classes.objects import *
@@ -18,6 +19,7 @@ class Board:
         self.reset_board(width, height, object_positions)
 
     def reset_board(self, width, height, object_positions):
+
         self.board = defaultdict(dict)
         self.objects = {}
         # Keeps track of object counts for indexing purposes
@@ -26,15 +28,16 @@ class Board:
         if width or height:
             self.width = width
             self.height = height
-        for i in range(self.width):
-            for j in range(self.height):
-                if object_positions[i][j] == "##":
-                    self.board[(i,j)] = None
-                elif object_positions[i][j] == "..":
-                    self.board[(i,j)] = {}
+
+        for y in range(self.height):
+            for x in range(self.width):
+                if object_positions[y][x] == "##":
+                    self.board[(y,x)] = None
+                elif object_positions[y][x] == "..":
+                    self.board[(y,x)] = {}
                 else:
-                    obj = self.create_object(i, j, object_positions[i][j])
-                    self.board[(i,j)][obj.index] = obj
+                    obj = self.create_object(x, y, object_positions[y][x])
+                    self.board[(y,x)][obj.index] = obj
                     self.objects[obj.index] = obj
 
     def create_object(self, x_pos, y_pos, obj_code, placed_by=None):
@@ -69,7 +72,9 @@ class Board:
                         type_=self.config["OBJECT_CODES"][obj_code]["type"],
                         x=x_pos,
                         y=y_pos,
-                        dice_rolls=self.config["OBJECT_CODES"][obj_code]["dice_rolls"])
+                        dice_rolls=self.config["OBJECT_CODES"][obj_code]["dice_rolls"],
+                        action_points=self.config["OBJECT_CODES"][obj_code]["action_points"]
+                        if obj_code[0] == "M" else None)
         # Special objects
         else:
             # Walls and empty spaces don't get their own python objects
@@ -98,16 +103,16 @@ class Board:
                           index=index,
                           x=x_pos,
                           y=y_pos,
-                          placed_by=placed_by)
+                          placed_by=placed_by,
+                          type_=self.config["OBJECT_CODES"][obj_code]["type"])
 
         return obj
-
 
     ##########################
     # POSITIONING & MOVEMENT #
     ##########################
 
-    def check_valid_move(self, x, y, avoid=None, as_regex=False):
+    def check_valid_move(self, x, y, avoid=None, allow_wall=False):
         """
         Checks whether the given x,y position is a valid position for movement/placement.
         :param x: Specifies the x location to move/place to
@@ -116,31 +121,22 @@ class Board:
         """
         if avoid is None:
             avoid = []
-
-        if 0 <= x < len(self.curr_level) and 0 <= y < len(self.curr_level[0]):
-            objs = self.curr_level[x][y].split("-")
-            for o in objs:
-                # Cannot move where walls are
-                if o == self.wall:
-                    break
-                # Check if new spot has objects to avoid
-                elif as_regex:
-                    if any([re.match(av, o) for av in avoid]):
-                        break
-                # Consider items in 'avoid' for exact match
-                else:
-                    if o in avoid:
-                        break
-            # Passed all the tests
-            else:
+        # x,y position is within bounds
+        # position does not contain a wall
+        # no objects in the avoid list is at x,y position
+        if 0 <= x < self.width and 0 <= y < self.height:
+            if self.board[(y,x)]:
+                if not any([True for obj in self.board[(y,x)].values() if obj.name in avoid]):
+                    return True
+            elif allow_wall:
                 return True
         return False
 
     def valid_move(self, x, y, action):
-        mapping = {"left": (x, y-1), "right": (x, y+1), "up": (x-1, y), "down": (x+1, y), "wait": (x, y)}
+        mapping = {"left": (x-1, y), "right": (x+1, y), "up": (x, y+1), "down": (x, y-1), "wait": (x, y)}
         return self.check_valid_move(*mapping[action])
 
-    def update_location_by_direction(self, action, x, y):
+    def update_location_by_direction(self, action, x, y, avoid=None, allow_wall=False):
         """
         Updates character location based on given directional action. Note that when a 2D array is printed,
         moving "up" is equivalent to going down one index in the list of rows and vice versa for
@@ -153,41 +149,39 @@ class Board:
         """
         if action == "wait":
             pass
-        elif action == "left" and self.check_valid_move(x, y - 1):
-            y -= 1
-        elif action == "right" and self.check_valid_move(x, y + 1):
-            y += 1
-        elif action == "up" and self.check_valid_move(x - 1, y):
+        elif action == "left" and self.check_valid_move(x-1, y, avoid=avoid, allow_wall=allow_wall):
             x -= 1
-        elif action == "down" and self.check_valid_move(x + 1, y):
+        elif action == "right" and self.check_valid_move(x+1, y, avoid=avoid, allow_wall=allow_wall):
             x += 1
+        elif action == "up" and self.check_valid_move(x, y+1, avoid=avoid, allow_wall=allow_wall):
+            y += 1
+        elif action == "down" and self.check_valid_move(x, y-1, avoid=avoid, allow_wall=allow_wall):
+            y -= 1
 
         return x, y
 
-    def move_monster(self, m):
+    def move_monster(self, m, directions):
         """
         Implements logic for monster movement. Currently, this is random walk.
         :param m: The monster to move
         :return: N/A
         """
-        x = self.object_pos[m]["x"]
-        y = self.object_pos[m]["y"]
-        old_pos = (x, y)
+        x = self.objects[m].x
+        y = self.objects[m].y
+        # old_pos = (x, y)
 
-        options = [("left", x, y - 1), ("right", x, y + 1), ("up", x - 1, y), ("down", x + 1, y)]
-        shuffle(options)
-        while options:
-            op = options.pop()
-            if self.check_valid_move(op[1], op[2],
-                                     avoid=[self.enemy_regexes["Stone"], self.enemy_regexes["Trap"]],
-                                     as_regex=True):
-                self.move(m, action=op[0], x=op[1], y=op[2], old_pos=old_pos)
+        shuffle(directions)
+        while directions:
+            op = directions.pop()
+            new_x, new_y = self.update_location_by_direction(op, x, y, avoid=["Stone", "Trap"])
+            if x != new_x or y != new_y:
+                self.place(m, new_x, new_y, old_x=x, old_y=y)
                 break
 
-    def move(self, obj, action, x=None, y=None, old_pos=None):
+    def move(self, obj_index, action, x=None, y=None, old_pos=None, delete=False):
         """
         Moves the given object according to the given action
-        :param object: The object to move
+        :param obj_index: The object to move
         :param action: The cardinal action to take
         :param x: Specifies the x location of the player to move
         :param y: Specifies the y location of the player to move
@@ -200,18 +194,21 @@ class Board:
             return
         # x is None and y is None, need to get new position
         if x is None or y is None:
-            x = self.objects[obj].x
-            y = self.objects[obj].y
+            x = self.objects[obj_index].x
+            y = self.objects[obj_index].y
             old_pos = (x, y)
 
             x, y = self.update_location_by_direction(action, x, y)
 
-        self.place(obj, x, y, old_x=old_pos[0], old_y=old_pos[1])
+        if x != old_pos[0] or y != old_pos[1]:
+            #self.objects[obj_index].prev_x = old_pos[0]
+            #self.objects[obj_index].prev_y = old_pos[1]
+            self.place(obj_index, x, y, old_x=old_pos[0], old_y=old_pos[1], delete=delete)
 
-    def place(self, obj, x, y, old_x=None, old_y=None, index=None):
+    def place(self, obj_index, x, y, old_x=None, old_y=None, create=False, placed_by=None, delete=False):
         """
         Places the given object at the given x,y position
-        :param obj: The object to place
+        :param obj_index: The object to place
         :param x: Specifies the x location to place on
         :param y: Specifies the y location to place on
         :param old_x: Specifies the current x location of the object which becomes the previous x location after the
@@ -226,23 +223,21 @@ class Board:
         # 'index' in parentheses (usually for identification purposes)
         # if index:
         #     obj = f"{obj}({index})"
-        # Update location of object
-        self.objects[obj].x = x
-        self.objects[obj].y = y
-        self.board[(x,y)][obj] = obj
-
-        # Remove obj from old position if it was previously on the grid
-        if old_x is not None:
-            self.remove(obj, old_x, old_y, delete=False)
-
-
-        if obj not in self.object_pos:
-            self.object_pos[obj] = {"x": x, "y": y}
+        if create:
+            new_obj = self.create_object(x, y, obj_index, placed_by=placed_by)
+            self.board[(y,x)][obj_index] = new_obj
+            self.objects[obj_index] = new_obj
         else:
-            self.object_pos[obj]["x"] = x
-            self.object_pos[obj]["y"] = y
+            # Update location of object
+            self.objects[obj_index].x = x
+            self.objects[obj_index].y = y
+            self.board[(y,x)][obj_index] = self.objects[obj_index]
 
-    def remove(self, obj, x=None, y=None, delete=True):
+            # Remove obj from old position if it was previously on the grid
+            if old_x is not None:
+                self.remove(obj_index, old_x, old_y, delete=delete)
+
+    def remove(self, obj_index, x=None, y=None, delete=True):
         """
         Removes the given object from the grid. The x,y position of the object can be optionally supplied
         :param obj: The object to remove
@@ -251,14 +246,15 @@ class Board:
         :param delete: If False, does not delete object from object list
         :return: N/A
         """
+
         if x is None or y is None:
-            x = self.objects[obj].x
-            y = self.objects[obj].y
+            x = self.objects[obj_index].x
+            y = self.objects[obj_index].y
         # Delete object from board
-        del self.board[(x,y)][obj]
+        self.board[(y,x)] = {k: v for k, v in self.board[(y,x)].items() if k != obj_index}
         # In this case, should delete object entirely (from game)
         if delete:
-            del self.objects[obj]
+            del self.objects[obj_index]
 
     def multi_remove(self, objs):
         """
@@ -287,28 +283,35 @@ class Board:
         return self.objects[player].x == self.objects[obj].x \
             and self.objects[player].y == self.objects[obj].y
 
-    def print_board(self, render_verbose=False):
+    def print_board(self, render_verbose=False, level=None, phase=None, num_rounds=None, round_cap=None):
         if render_verbose:
             info = [
-                ["Level:", self.curr_level_num],
-                ["Phase:", self.phases[self.phase_num]]
+                ["Level:", level],
+                ["Phase:", phase],
+                ["Number of Rounds Left:", round_cap - num_rounds],
+                ["Subgoal Count:", self.objects["**"].subgoal_count]
             ]
             print("Game Info:")
             print(tabulate(info, tablefmt="grid"))
 
         table = []
-        for i in range(self.width):
+        for y in range(self.height):
             row = []
-            for j in range(self.height):
+            for x in range(self.width):
                 # Wall
-                if self.board[(i,j)] is None:
+                if self.board[(y,x)] is None:
                     row.append("##")
                 # Empty dict == empty space
-                elif not self.board[(i,j)]:
+                elif not self.board[(y,x)]:
                     row.append(" ")
                 else:
-                    string = "-".join([o.index for o in self.board[(i,j)].values()])
+                    codes = []
+                    for o in self.board[(y,x)].values():
+                        if isinstance(o, Player) and o.dead:
+                            continue
+                        codes.append(o.index)
+                    string = "-".join(codes)
                     row.append(string)
             table.append(row)
         print("Grid:")
-        print(tabulate(table, tablefmt="grid"), end="\n\n")
+        print(tabulate(reversed(table), tablefmt="grid"), end="\n\n")

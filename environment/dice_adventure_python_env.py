@@ -9,26 +9,26 @@ from os import listdir
 from os import makedirs
 from os import path
 from random import choice
+from random import seed
 from stable_baselines3 import PPO
 from environment import unity_socket
-
-"""
-Assumptions:
-1. step(): Previous state is based on resulting state of previous action, not the state right before taking the action.
-"""
+import pprint
+pp = pprint.PrettyPrinter(indent=2)
 
 
 class DiceAdventurePythonEnv(Env):
-    def __init__(self, id_, player, model_dir, track_metrics=False, server="local", automate_players=True, **kwargs):
+    def __init__(self, id_, player, model_dir, track_metrics=False, server="local", automate_players=True,
+                 set_random_seed=False, **kwargs):
         """
         :param game: A Dice Adventure game object
         'player'
         """
         self.id = id_
         print(f"INITIALIZING ENV {self.id}...")
+        if set_random_seed:
+            seed(self.id)
 
         self.game = None
-        self.prev_state = None
         self.kwargs = kwargs
         self.player = player
         self.player_num = 0
@@ -73,7 +73,11 @@ class DiceAdventurePythonEnv(Env):
         if self.server == "local":
             self.create_game()
 
-    def step(self, action):
+        self.prev_state = self.get_state()
+
+    def step(self, action, player=None):
+        if player is None:
+            player = self.player
         action = int(action)
         self.time_steps += 1
         # Update model for use by other players
@@ -81,10 +85,10 @@ class DiceAdventurePythonEnv(Env):
 
         # Execute action and get next state
         game_action = self.action_map[action]
-        next_state = self.execute_action(self.player, game_action)
+        next_state = self.execute_action(player, game_action)
 
-        pstate_1 = self.get_obj_from_scene_by_type(self.prev_state, self.players[self.player])
-        pstate_2 = self.get_obj_from_scene_by_type(next_state, self.players[self.player])
+        pstate_1 = self.get_obj_from_scene_by_type(self.prev_state, self.players[player])
+        pstate_2 = self.get_obj_from_scene_by_type(next_state, self.players[player])
 
         # Determine reward based on change in state
         reward = self.get_reward(pstate_1, pstate_2, self.prev_state, next_state)
@@ -96,12 +100,15 @@ class DiceAdventurePythonEnv(Env):
         # Update previous state to current one
         self.prev_state = deepcopy(next_state)
 
-
         # new_obs, reward, terminated, truncated, info
-        new_obs = self.get_observation(next_state)
-        terminated = False
+        # TODO define termination for local game and unity version
+        terminated = next_state["status"] == "Done"
+        if terminated:
+            new_obs, info = self.reset()
+        else:
+            new_obs = self.get_observation(next_state)
+            info = {}
         truncated = False
-        info = {}
         # Track metrics
         self.save_metrics()
 
@@ -111,12 +118,15 @@ class DiceAdventurePythonEnv(Env):
         pass
 
     def render(self, mode='console'):
-        if not self.game.render:
+        if self.server == "local":
             self.game.render()
+        else:
+            pass
 
     def reset(self, **kwargs):
         if self.server == "local":
             self.create_game()
+            print("IN RESET, CREATED NEW GAME!")
             obs = self.get_observation(self.prev_state)
         else:
             state = self.get_state()
@@ -140,7 +150,7 @@ class DiceAdventurePythonEnv(Env):
         return state
 
     def play_others(self, game_action, state, next_state):
-        print(diff(state, next_state))
+        # print(diff(state, next_state))
         # Play as other players (temporary)
         for p in self.players:
             if p != self.player:
@@ -155,12 +165,10 @@ class DiceAdventurePythonEnv(Env):
                     a = self.action_map[int(a)]
                 else:
                     a = choice(list(self.action_map.values()))
-                print(f"Other Player: {p}: Action: {a}")
+                # print(f"Other Player: {p}: Action: {a}")
                 _ = self.execute_action(p, a)
                 # next_state = self.get_state()
-        if game_action == "submit":
-            print(self.get_state())
-            exit(0)
+
 
     def check_for_new_model(self):
         if self.automate_players:
@@ -211,8 +219,7 @@ class DiceAdventurePythonEnv(Env):
                                          state["content"]["gameData"]["level"],
                                          # state["content"]["gameData"]["num_repeats"],
                                          self.player])
-        #if r > 0:
-        #    print(r)
+
         return r
 
     def goal_reached(self, state, next_state):
@@ -313,6 +320,7 @@ class DiceAdventurePythonEnv(Env):
                 y = i["y"]
                 p_info = self.parse_player_state_data(i, state["content"]["scene"])
                 break
+        # pp.pprint(state)
 
         x_bound_upper = x + self.local_mask_radius
         x_bound_lower = x - self.local_mask_radius
@@ -327,16 +335,17 @@ class DiceAdventurePythonEnv(Env):
                     other_x = self.local_mask_radius - (x - obj["x"])
                     other_y = self.local_mask_radius - (y - obj["y"])
                     # For enemies or pins, determine which type
-                    obj_type = obj["name"][0]
-                    if obj_type in ["M", "T", "S", "P"]:
-                        if obj_type == "P":
-                            version = self.pin_mapping[obj["name"][1]]
-                        else:
-                            version = int(obj["name"][1]) - 1
+                    obj_type = obj["name"] if "name" in obj else None
+                    if obj_type:
+                        if obj_type in ["M", "T", "S", "P"]:
+                            if obj_type == "P":
+                                version = self.pin_mapping[obj["name"][1]]
+                            else:
+                                version = int(obj["name"][1]) - 1
 
-                        grid[other_x][other_y][type_pos[obj["type"]]][version] = 1
-                    else:
-                        grid[other_x][other_y][type_pos[obj["type"]]][0] = 1
+                            grid[other_x][other_y][type_pos[obj["type"]]][version] = 1
+                        else:
+                            grid[other_x][other_y][type_pos[obj["type"]]][0] = 1
 
         return np.concatenate((np.ndarray.flatten(grid), np.ndarray.flatten(p_info)))
 
