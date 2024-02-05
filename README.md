@@ -8,7 +8,7 @@ This repository implements a low fidelity version of HMT Game 1 (Dice Adventure)
 
 ## Run the PPO model to play Dice Adventure
 ```sh
-  python train_agent.py
+  python train/train_agent.py
 ```
 
 ## In another terminal, start up the TensorBoard server to view training results
