@@ -60,6 +60,7 @@ class Player(GameObject):
         self.action_points = action_points
         self.max_action_points = action_points
         self.health = health
+        self.max_health = health
         self.sight_range = sight_range
         self.dice_rolls = dice_rolls
         # Location

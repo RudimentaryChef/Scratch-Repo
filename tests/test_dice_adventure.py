@@ -35,7 +35,7 @@ def main(env):
 
 
 def speed_test(env):
-    for i in trange(1000000000):
+    for i in range(1000000000):
         a = choice(action_nums)
 
         # print("Level: ", env.game.curr_level_num)
@@ -69,14 +69,15 @@ action_nums = [i for i in range(len(actions))]
 env = DiceAdventurePythonEnv(id_=1,
                              level=1,
                              player="1S",
-                             model_dir="model",
+                             model_dir="train/model/",
                              server="local",  # "unity"
-                             round_cap=2,
+                             round_cap=250,
                              level_sampling=True,
                              automate_players=True,
                              set_random_seed=True,
                              render_verbose=True,
-                             num_repeats=2
+                             num_repeats=2,
+                             env_metrics=True
                              )
 speed_test(env)
 # main(env)

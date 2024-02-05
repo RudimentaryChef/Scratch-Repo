@@ -10,7 +10,7 @@ def main():
     action_map = {0: 'left', 1: 'right', 2: 'up', 3: 'down', 4: 'wait',
                   5: 'submit', 6: 'pinga', 7: 'pingb', 8: 'pingc', 9: 'pingd', 10: 'undo'}
     amap_rev = {v: k for k, v in action_map.items()}
-    # model_filename = "../train/model/dice_adventure_ppo_model.zip"
+    # model_filename = "../train/model/dice_adventure_ppo_model_1.zip"
     model_dir = "train/model/"
     for p, a_list in actions.items():
         env = get_env(p, model_dir)
@@ -27,7 +27,7 @@ def main2():
     action_map = {0: 'left', 1: 'right', 2: 'up', 3: 'down', 4: 'wait',
                            5: 'submit', 6: 'pinga', 7: 'pingb', 8: 'pingc', 9: 'pingd', 10: 'undo'}
 
-    model_filename = "../train/model/dice_adventure_ppo_model.zip"
+    model_filename = "../train/model/dice_adventure_ppo_model_1.zip"
     model = PPO.load(model_filename)
 
     player = "2S"

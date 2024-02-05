@@ -152,9 +152,8 @@ class DiceAdventure:
         else:
             # Otherwise, move on to next level
             self.curr_level_num += 1
-        print(f"CHANGING TO LEVEL: {self.curr_level_num}", self.lvl_repeats, self.num_calls)
+        # print(f"CHANGING TO LEVEL: {self.curr_level_num}", self.lvl_repeats, self.num_calls)
         self.lvl_repeats[self.curr_level_num] -= 1
-
 
     ###########################
     # GET STATE & SEND ACTION #
@@ -188,15 +187,14 @@ class DiceAdventure:
         for pos, obj_dict in self.board.board.items():
             # Walls
             if obj_dict is None:
-                state["content"]["scene"].append({"type": "wall", "x": int(pos[0]), "y": int(pos[1])})
+                state["content"]["scene"].append({"name": "Wall", "type": "Wall", "x": int(pos[1]), "y": int(pos[0])})
             else:
                 for o in obj_dict:
                     obj = obj_dict[o]
 
-                    ele = {"type": obj.type, "x": obj.x, "y": obj.y}
+                    ele = {"name": obj.name, "type": obj.type, "x": obj.x, "y": obj.y}
                     if isinstance(obj, Player):
                         ele.update({
-                            "name": obj.name,
                             "characterId": int(obj.obj_code[0]),
                             "pinCursorX": obj.pin_x,
                             "pinCursorY": obj.pin_y,
@@ -283,6 +281,7 @@ class DiceAdventure:
                     # Player has waited long enough
                     self.board.objects[p].dead = False
                     self.board.objects[p].death_round = None
+                    self.board.objects[p].health = self.board.objects[p].max_health
                     self.board.objects[p].prev_x = self.board.objects[p].start_x
                     self.board.objects[p].prev_y = self.board.objects[p].start_y
                     self.board.place(p, x=self.board.objects[p].start_x, y=self.board.objects[p].start_y)
@@ -331,7 +330,7 @@ class DiceAdventure:
                                  self.board.objects[player].pin_x,
                                  self.board.objects[player].pin_y,
                                  create=True,
-                                 placed_by=player)
+                                 placed_by=self.board.objects[player].name)
                 self.board.objects[player].placed_pin = True
                 self.board.objects[player].action_points -= 1
                 # Reset pin_x and pin_y location to player position

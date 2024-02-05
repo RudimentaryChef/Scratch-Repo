@@ -4,6 +4,7 @@ from environment.dice_adventure import DiceAdventure
 from gymnasium import Env
 from gymnasium import spaces
 from jsondiff import diff
+from json import loads
 import numpy as np
 from os import listdir
 from os import makedirs
@@ -17,18 +18,18 @@ pp = pprint.PrettyPrinter(indent=2)
 
 
 class DiceAdventurePythonEnv(Env):
-    def __init__(self, id_, player, model_dir, track_metrics=False, server="local", automate_players=True,
+    def __init__(self, id_, player, model_dir, env_metrics=False, server="local", automate_players=True,
                  set_random_seed=False, **kwargs):
-        """
-        :param game: A Dice Adventure game object
-        'player'
-        """
         self.id = id_
         print(f"INITIALIZING ENV {self.id}...")
         if set_random_seed:
             seed(self.id)
 
         self.game = None
+        self.config = self.config = loads(open("environment/config.json", "r").read())
+        self.reward_codes = self.config["GYM_ENVIRONMENT"]["REWARD"]["CODES"]
+        self.observation_object_positions = self.config["GYM_ENVIRONMENT"]["OBSERVATION"]["OBJECT_POSITIONS"]
+        self.object_size_mappings = self.config["OBJECT_INFO"]["OBJECT_SIZE_MAPPINGS"]
         self.kwargs = kwargs
         self.player = player
         self.player_num = 0
@@ -56,24 +57,26 @@ class DiceAdventurePythonEnv(Env):
         # The observation will be the coordinate of the agent
         # this can be described both by Discrete and Box space
         self.mask_size = self.max_mask_radius * 2 + 1
-        vector_len = (self.mask_size * self.mask_size * len(self.get_type_positions()) * 4) + 6
+        vector_len = (self.mask_size * self.mask_size * len(self.observation_object_positions) * 4) + 6
         self.observation_space = spaces.Box(low=-5, high=100,
                                             shape=(vector_len,), dtype=np.float32)
-
-        # Metrics
-        self.metrics_dir = "../metrics"
+        ###################
+        # METRIC TRACKING #
+        ###################
+        self.metrics_dir = "metrics/"
         makedirs(self.metrics_dir, exist_ok=True)
-        self.track_metrics = track_metrics
+        self.track_metrics = env_metrics
         self.metrics_save_threshold = 10000
+        # Reward tracking
         self.rewards_tracker = []
 
         # Server type
         self.server = server
         self.unity_socket_url = "ws://localhost:4649/hmt/{}"
+
         if self.server == "local":
             self.create_game()
-
-        self.prev_state = self.get_state()
+        self.prev_observed_state = self.get_state()
 
     def step(self, action, player=None):
         if player is None:
@@ -83,22 +86,27 @@ class DiceAdventurePythonEnv(Env):
         # Update model for use by other players
         self.check_for_new_model()
 
+        state = self.get_state()
         # Execute action and get next state
         game_action = self.action_map[action]
         next_state = self.execute_action(player, game_action)
 
-        pstate_1 = self.get_obj_from_scene_by_type(self.prev_state, self.players[player])
+        # pstate_1 = self.get_obj_from_scene_by_type(self.prev_state, self.players[player])
+        pstate_1 = self.get_obj_from_scene_by_type(state, self.players[player])
         pstate_2 = self.get_obj_from_scene_by_type(next_state, self.players[player])
 
         # Determine reward based on change in state
-        reward = self.get_reward(pstate_1, pstate_2, self.prev_state, next_state)
+        # reward = self.get_reward(pstate_1, pstate_2, self.prev_state, next_state)
+        reward = self.get_reward(pstate_1, pstate_2, self.prev_observed_state, next_state)
+
+        # Update previous state to current one
+        # Should update this before
+        self.prev_observed_state = deepcopy(next_state)
 
         # Simulate other players
         if self.automate_players:
-            self.play_others(game_action, self.prev_state, next_state)
+            self.play_others(game_action, self.prev_observed_state, next_state)
             next_state = self.get_state()
-        # Update previous state to current one
-        self.prev_state = deepcopy(next_state)
 
         # new_obs, reward, terminated, truncated, info
         # TODO define termination for local game and unity version
@@ -126,8 +134,8 @@ class DiceAdventurePythonEnv(Env):
     def reset(self, **kwargs):
         if self.server == "local":
             self.create_game()
-            print("IN RESET, CREATED NEW GAME!")
-            obs = self.get_observation(self.prev_state)
+            state = self.get_state()
+            obs = self.get_observation(state)
         else:
             state = self.get_state()
             obs = self.get_observation(state)
@@ -150,8 +158,7 @@ class DiceAdventurePythonEnv(Env):
         return state
 
     def play_others(self, game_action, state, next_state):
-        # print(diff(state, next_state))
-        # Play as other players (temporary)
+        # Play as other players
         for p in self.players:
             if p != self.player:
                 # Only force submit on other characters if case where self.player clicking submit does not
@@ -169,17 +176,16 @@ class DiceAdventurePythonEnv(Env):
                 _ = self.execute_action(p, a)
                 # next_state = self.get_state()
 
-
     def check_for_new_model(self):
         if self.automate_players:
             if self.time_steps % self.load_threshold == 0:
                 model_files = [self.model_dir+file.rstrip(".zip") for file in listdir(self.model_dir)]
-                latest = sorted([(file, int(file[-1])) for file in model_files], key=lambda x: x[1])[-1]
+                latest = sorted([(file, int(file.split("_")[-1])) for file in model_files], key=lambda x: x[1])[-1]
                 self.model = PPO.load(latest[0])
 
     def create_game(self):
         self.game = DiceAdventure(**self.kwargs)
-        self.prev_state = self.game.get_state()
+        # self.prev_state = self.game.get_state()
 
     def get_reward(self, p1, p2, state, next_state):
         # Get reward
@@ -195,11 +201,15 @@ class DiceAdventurePythonEnv(Env):
         2.
         """
         r = 0
+        reward_types = []
+
         # Player getting goal
         if self.goal_reached(state, next_state):
-            r += .5
+            reward_types.append(self.reward_codes["0"])
+            r += 1
         # Players getting to tower after getting all goals
         if self.check_new_level(state, next_state):
+            reward_types.append(self.reward_codes["1"])
             r += 1
         # Player winning combat
         # if self.check_combat_outcome():
@@ -209,7 +219,8 @@ class DiceAdventurePythonEnv(Env):
         #     r += .1
         # Player losing health
         if self.health_lost_or_dead(p1, p2):
-            r -= 1
+            reward_types.append(self.reward_codes["2"])
+            r -= .1
 
         if self.track_metrics:
             # [timestep, timestamp, reward, level, repeat_number, player]
@@ -217,16 +228,15 @@ class DiceAdventurePythonEnv(Env):
                                          datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f'),
                                          str(r),
                                          state["content"]["gameData"]["level"],
-                                         # state["content"]["gameData"]["num_repeats"],
+                                         ",".join(reward_types),
                                          self.player])
-
         return r
 
     def goal_reached(self, state, next_state):
         # no goal in prev state, goal in next state
         # no goal in either state but next state is new level
-        g1 = self.get_obj_from_scene_by_type(state, "shrine")
-        g2 = self.get_obj_from_scene_by_type(next_state, "shrine")
+        g1 = self.get_obj_from_scene_by_type(state, "Shrine")
+        g2 = self.get_obj_from_scene_by_type(next_state, "Shrine")
 
         # Goal has now been reached since previous state
         # OR goal was not reached in previous state but either:
@@ -299,14 +309,13 @@ class DiceAdventurePythonEnv(Env):
         """
         Constructs an array observation for agent based on state. Dimensions:
         1. self.mask x self.mask (1-2)
-        2. len(get_type_positions()) (3)
+        2. len(self.observation_type_positions) (3)
         3. 4 (4) - max number of object types is 4 [i.e., M4]
         4. six additional state variables
         Total Est.: 5x5x10x4+6= 1006
         :param state:
         :return:
         """
-        type_pos = self.get_type_positions()
         x = None
         y = None
         p_info = np.array([])
@@ -327,25 +336,23 @@ class DiceAdventurePythonEnv(Env):
         y_bound_upper = y + self.local_mask_radius
         y_bound_lower = y - self.local_mask_radius
 
-        grid = np.zeros((self.mask_size, self.mask_size, len(type_pos), 4))
+        grid = np.zeros((self.mask_size, self.mask_size, len(self.observation_object_positions), 4))
         for obj in state["content"]["scene"]:
-            if obj["type"] in type_pos and obj["x"] and obj["y"]:
+            if obj["name"] in self.observation_object_positions and obj["x"] and obj["y"]:
                 if x_bound_lower <= obj["x"] <= x_bound_upper and \
                         y_bound_lower <= obj["y"] <= y_bound_upper:
                     other_x = self.local_mask_radius - (x - obj["x"])
                     other_y = self.local_mask_radius - (y - obj["y"])
-                    # For enemies or pins, determine which type
-                    obj_type = obj["name"] if "name" in obj else None
-                    if obj_type:
-                        if obj_type in ["M", "T", "S", "P"]:
-                            if obj_type == "P":
-                                version = self.pin_mapping[obj["name"][1]]
-                            else:
-                                version = int(obj["name"][1]) - 1
-
-                            grid[other_x][other_y][type_pos[obj["type"]]][version] = 1
-                        else:
-                            grid[other_x][other_y][type_pos[obj["type"]]][0] = 1
+                    # For pins and enemies, determine which type for version
+                    if obj["type"] == "Pin":
+                        version = self.pin_mapping[obj["name"][1]]
+                    # For enemies, determine which type for version
+                    elif obj["name"] in ["Monster", "Trap", "Stone"]:
+                        version = self.object_size_mappings[obj["type"].split("_")[0]]
+                    # All other objects have one version
+                    else:
+                        version = 0
+                    grid[other_x][other_y][self.observation_object_positions[obj["name"]]][version] = 1
 
         return np.concatenate((np.ndarray.flatten(grid), np.ndarray.flatten(p_info)))
 
@@ -360,7 +367,7 @@ class DiceAdventurePythonEnv(Env):
             "pinCursorY": {"pos": 5, "map": {None: -1}}
         }
         vector = np.zeros((len(state_map,)))
-        shrine = [i for i in scene if i["type"] == "shrine" and i["character"] == player_obj["name"]][0]
+        shrine = [i for i in scene if i["type"] == "Shrine" and i["character"] == player_obj["name"]][0]
         for field in state_map:
             if field == "reached":
                 data = shrine[field]
@@ -373,12 +380,6 @@ class DiceAdventurePythonEnv(Env):
             else:
                 vector[state_map[field]["pos"]] = data
         return vector
-
-    @staticmethod
-    def get_type_positions():
-        return {'human': 0, 'dwarf': 1, 'giant': 2, 'goal': 3,
-                'door': 4, 'wall': 5, 'monster': 6, 'trap': 7,
-                'rock': 8, 'tower': 9, 'pin': 10}
 
     def save_metrics(self):
         if self.track_metrics:
