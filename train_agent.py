@@ -31,8 +31,8 @@ def main(player="1S"):
     # env = DiceAdventurePythonEnv(game, player, model_filename)
     vec_env = SubprocVecEnv(envs)
     # vec_env = DummyVecEnv(envs)
-    model = PPO("MlpPolicy", vec_env, verbose=0, tensorboard_log=tensor_board_log, device="cpu", n_steps=8192,
-                batch_size=256)
+    model = PPO("MlpPolicy", vec_env, verbose=0, tensorboard_log=tensor_board_log, device="cpu", n_steps=2048,
+                batch_size=64)
     try:
         save_callback = SaveCallback(model_dir=model_dir, log_dir=log_dir)
         model.learn(total_timesteps=NUM_TIME_STEPS, callback=save_callback, progress_bar=False)
@@ -53,7 +53,7 @@ def make_env(env_id: str, player: str, model_dir: str, monitor_dir: str):
                                       set_random_seed=True,
                                       # Kwargs
                                       level=1, render=False, num_repeats=1000, level_sampling=True, round_cap=250,
-                                      track_metrics=False, metrics_dir=monitor_dir)
+                                      track_metrics=False, metrics_dir=monitor_dir, limit_levels=[1])
     set_random_seed(int(env_id))
     return _init
 
@@ -85,7 +85,7 @@ class SaveCallback(BaseCallback, ABC):
                 self.save_logfile()
 
     def save_model(self):
-        model_filename = path.join(self.model_dir, "dice_adventure_ppo_model_", str(self.version))
+        model_filename = f"{self.model_dir}dice_adventure_ppo_model_{self.version}"
         self.model.save(model_filename)
         self.save_logfile()
         self.version += 1
