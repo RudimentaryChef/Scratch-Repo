@@ -1,7 +1,7 @@
 gymnasium
 numpy
 rich
-stable-baselines3[extra]
+stable-baselines3==2.1.0
 tabulate
 tensorflow
 tqdm
