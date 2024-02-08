@@ -1,0 +1,130 @@
+{
+  "ACTIONS": {
+	"DIRECTIONS": ["left", "right", "up", "down"],
+	"REVERSE_ACTIONS": {"left": "right", "right": "left", "up": "down", "down": "up", "wait": "wait"},
+	"VALID_PIN_ACTIONS": ["left", "right", "up", "down", "submit"],
+	"VALID_PIN_TYPES": ["pinga", "pingb", "pingc", "pingd"],
+	"VALID_MOVE_ACTIONS": ["left", "right", "up", "down", "wait", "submit"],
+	"MAX_MOVES": 6
+  },
+  "OBJECT_CODES": {
+	"1S": {"name": "Dwarf",
+	  "type": "Dwarf",
+	  "action_points": 6,
+	  "max_points": 6,
+	  "health": 3,
+	  "sight_range": 1,
+	  "dice_rolls":  {"Monster": {"val": 8, "const": 0}, "Trap": {"val": 6, "const": 0}, "Stone": {"val": 6, "const": 0}}},
+	"2S": {
+	  "name": "Giant",
+	  "type": "Giant",
+	  "action_points": 2,
+	  "max_points": 2,
+	  "health": 3,
+	  "sight_range": 3,
+	  "dice_rolls":  {"Monster": {"val": 6, "const": 0}, "Trap": {"val": 8, "const": 0}, "Stone": {"val": 4, "const": 0}}},
+	"3S": {
+	  "name": "Human",
+	  "type": "Human",
+	  "action_points": 4,
+	  "max_points": 4,
+	  "health": 3,
+	  "sight_range": 2,
+	  "dice_rolls":  {"Monster": {"val": 6, "const": 0}, "Trap": {"val": 4, "const": 0}, "Stone": {"val": 8, "const": 0}}},
+	"1G": {"name": "Shrine", "type": "Shrine"},
+	"2G": {"name": "Shrine", "type": "Shrine"},
+	"3G": {"name": "Shrine", "type": "Shrine"},
+	"M1": {"name": "Monster","type": "S_Monster", "dice_rolls":  {"val": 4, "const": 0}, "action_points": 2},
+	"M2": {"name": "Monster", "type": "M_Monster", "dice_rolls":  {"val": 6, "const": 0}, "action_points": 2},
+	"M3": {"name": "Monster", "type": "L_Monster", "dice_rolls":  {"val": 8, "const": 0}, "action_points": 2},
+	"M4": {"name": "Monster", "type": "XL_Monster", "dice_rolls": {"val": 10, "const": 0}, "action_points": 2},
+	"T1": {"name": "Trap", "type": "S_Trap", "dice_rolls":  {"val": 4, "const": 2}},
+	"T2": {"name": "Trap", "type": "M_Trap", "dice_rolls":  {"val": 4, "const": 2}},
+	"T3": {"name": "Trap", "type": "L_Trap", "dice_rolls":  {"val": 4, "const": 2}},
+	"S1": {"name": "Stone", "type": "S_Stone", "dice_rolls":  {"val": 0, "const": 5}},
+	"S2": {"name": "Stone", "type": "M_Stone", "dice_rolls":  {"val": 0, "const": 5}},
+	"S3": {"name": "Stone", "type": "L_Stone", "dice_rolls":  {"val": 0, "const": 5}},
+	"..": {"name": "Empty_Space", "type": "Empty_Space"},
+	"**": {"name": "Tower", "type": "Goal"},
+	"##": {"name": "Wall", "type": "Wall"},
+	"PA": {"name": "PA", "type": "Pin"},
+	"PB": {"name": "PB", "type": "Pin"},
+	"PC": {"name": "PC", "type": "Pin"},
+	"PD": {"name": "PD", "type": "Pin"}
+
+	},
+  "PLAYER_CODES": ["1S", "2S", "3S"],
+  "PLAYER_CODE_MAPPING": {"Dwarf": "1S", "Giant": "2S", "Human": "3S"},
+  "LEVELS": {
+	"1": "##**##\n1G2G3G\n1S2S3S\nM1M2M1",
+	"2": "##**##\n##..##\n##M2##\n1G2G3G\nM1M1M1\n1S2S3S",
+	"3": "##2G##\n..**..\n3GS11G\n##T1##\n3S2S1S",
+	"4": "##..##..##..##\n##2G..T1M2..**\n....####..1G##\n##M1..S13G..##\n##3S##..##M2##\n##1S2SM2##..##",
+	"5": "####............####\n##..####1G..S1M1....\n##....T1##M1....S1..\n##..M3..####..M1####\n....##**T1..........\nT1..2G##..M1S1##....\n..##T1##M2....####..\nM1..##S1..T1##..3G##\n3S......####M3T1....\n1S2S....M2.........."
+  },
+  "OBJECT_INFO": {
+	"Monster": {"type": "monster", "regex": "(M\\d\\(\\d+\\)|M\\d)", "moves": {"1":  2, "2": 1, "3": 1, "4": 1},
+				"size_mapping":  {"M1": "S_Monster", "M2": "M_Monster", "M3": "L_Monster", "M4": "XL_Monster"}},
+	"Trap": {"type": "trap", "regex": "(T\\d\\(\\d+\\)|T\\d)"},
+	"Stone": {"type": "stone", "regex": "(S\\d\\(\\d+\\)|S\\d)"},
+	"Wall": {"type": "wall", "regex": "##"},
+	"Empty Space": {"type": "empty_space", "regex": ".."},
+	"Tower": {"type": "goal", "regex": "**"},
+	"Goal": {"type": "shrine", "regex": "\\dG"},
+	"Pin": {
+	  "type": "pin",
+	  "regex": "(P(A|B|C|D)\\(\\dS\\)|P(A|B|C|D))",
+	  "code_mapping": {
+		"pinga": "PA",
+	  	"pingb": "PB",
+	  	"pingc": "PC",
+	  	"pingd": "PD"
+	  }
+	},
+	"OBJECT_SIZE_MAPPINGS": {
+	  "S": 0,
+	  "M": 1,
+	  "L": 2,
+	  "XL": 3
+	}
+  },
+  "PHASES": {
+		"PINNING_PHASE_NAME": "Player_Pinning",
+		"PLANNING_PHASE_NAME": "Player_Planning",
+		"PLAYER_EXECUTION_PHASE_NAME": "Player_Execution",
+		"ENEMY_EXECUTION_PHASE_NAME": "Enemy_Execution",
+		"PHASE_LIST": ["Player_Pinning", "Player_Planning", "Player_Execution", "Enemy_Execution"]
+  },
+  "MISC_DATA": {
+	"EMPTY_SPACE": "..",
+	"ENEMY_REGEXES": {"monster": "M\\d", "trap": "T\\d", "stone": "S\\d"},
+	"TOWER": "**",
+	"WALL": "##"
+  },
+  "GYM_ENVIRONMENT": {
+	"REWARD": {
+	  "CODES": {
+		"0": "Personal Goal Reached",
+		"1": "New Level/Tower Reached",
+		"2": "Health Lost/Dead"
+	  }
+	},
+	"OBSERVATION": {
+	  "OBJECT_POSITIONS": {
+		"Human": 0,
+		"Dwarf": 1,
+		"Giant": 2,
+		"Shrine": 3,
+		"Wall": 4,
+		"Monster": 5,
+		"Trap": 6,
+		"Stone": 7,
+		"Tower": 8,
+		"PA": 9,
+		"PB": 9,
+		"PC": 9,
+		"PD": 9
+	  }
+	}
+  }
+}

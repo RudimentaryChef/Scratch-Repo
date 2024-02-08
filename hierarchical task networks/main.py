@@ -1,5 +1,5 @@
-from environment.unity_socket import execute_action
-from environment.unity_socket import get_state
+from game.unity_socket import execute_action
+from game.unity_socket import get_state
 
 
 def main():

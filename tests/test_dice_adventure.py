@@ -2,9 +2,10 @@ import pprint
 from random import choice
 from time import sleep
 from tqdm import trange
-from environment.dice_adventure_python_env import DiceAdventurePythonEnv
-
+from game.dice_adventure_python_env import DiceAdventurePythonEnv
 pp = pprint.PrettyPrinter(indent=2)
+
+
 def main(env):
 
     action_map = {0: 'left', 1: 'right', 2: 'up', 3: 'down', 4: 'wait',
@@ -55,6 +56,7 @@ def speed_test(env):
         # print(f"Round: {env.game.num_rounds}")
         # print(f"Character: {env.player} | Action: {actions[a]}")
         res = env.step(a)
+        env.render()
 
         # env.game.render()
         # pp.pprint(env.get_state())
@@ -68,6 +70,7 @@ action_nums = [i for i in range(len(actions))]
 
 env = DiceAdventurePythonEnv(id_=1,
                              level=1,
+                             limit_levels=[1],
                              player="1S",
                              model_dir="train/model/",
                              server="local",  # "unity"
@@ -76,8 +79,8 @@ env = DiceAdventurePythonEnv(id_=1,
                              automate_players=True,
                              set_random_seed=True,
                              render_verbose=True,
-                             num_repeats=2,
-                             env_metrics=True
+                             num_repeats=2
+                             # env_metrics=True
                              )
 speed_test(env)
 # main(env)
