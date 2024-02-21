@@ -57,23 +57,23 @@ class Board:
         if re.match("\\dS", obj_code):
             obj = Player(obj_code=obj_code,
                          index=index,
-                         name=self.config["OBJECT_CODES"][obj_code]["name"],
+                         name=self.config["OBJECT_INFO"]["OBJECT_CODES"][obj_code]["NAME"],
                          x=x_pos,
                          y=y_pos,
-                         action_points=self.config["OBJECT_CODES"][obj_code]["action_points"],
-                         health=self.config["OBJECT_CODES"][obj_code]["health"],
-                         sight_range=self.config["OBJECT_CODES"][obj_code]["sight_range"],
-                         dice_rolls=self.config["OBJECT_CODES"][obj_code]["dice_rolls"])
+                         action_points=self.config["OBJECT_INFO"]["OBJECT_CODES"][obj_code]["ACTION_POINTS"],
+                         health=self.config["OBJECT_INFO"]["OBJECT_CODES"][obj_code]["HEALTH"],
+                         sight_range=self.config["OBJECT_INFO"]["OBJECT_CODES"][obj_code]["SIGHT_RANGE"],
+                         dice_rolls=self.config["OBJECT_INFO"]["OBJECT_CODES"][obj_code]["DICE_ROLLS"])
         # Enemy objects
         elif re.match("(M\\d|S\\d|T\\d)", obj_code):
             obj = Enemy(obj_code=obj_code,
                         index=index,
-                        name=self.config["OBJECT_CODES"][obj_code]["name"],
-                        type_=self.config["OBJECT_CODES"][obj_code]["type"],
+                        name=self.config["OBJECT_INFO"]["OBJECT_CODES"][obj_code]["NAME"],
+                        type_=self.config["OBJECT_INFO"]["OBJECT_CODES"][obj_code]["TYPE"],
                         x=x_pos,
                         y=y_pos,
-                        dice_rolls=self.config["OBJECT_CODES"][obj_code]["dice_rolls"],
-                        action_points=self.config["OBJECT_CODES"][obj_code]["action_points"]
+                        dice_rolls=self.config["OBJECT_INFO"]["OBJECT_CODES"][obj_code]["DICE_ROLLS"],
+                        action_points=self.config["OBJECT_INFO"]["OBJECT_CODES"][obj_code]["ACTION_POINTS"]
                         if obj_code[0] == "M" else None)
         # Special objects
         else:
@@ -84,16 +84,16 @@ class Board:
             elif obj_code == "**":
                 obj = Tower(obj_code=obj_code,
                             index=index,
-                            name=self.config["OBJECT_CODES"][obj_code]["name"],
-                            type_=self.config["OBJECT_CODES"][obj_code]["type"],
+                            name=self.config["OBJECT_INFO"]["OBJECT_CODES"][obj_code]["NAME"],
+                            type_=self.config["OBJECT_INFO"]["OBJECT_CODES"][obj_code]["TYPE"],
                             x=x_pos,
                             y=y_pos)
             # Shrine objects
             elif re.match("\\dG", obj_code):
                 obj = Shrine(obj_code=obj_code,
                              index=index,
-                             name=self.config["OBJECT_CODES"][obj_code]["name"],
-                             type_=self.config["OBJECT_CODES"][obj_code]["type"],
+                             name=self.config["OBJECT_INFO"]["OBJECT_CODES"][obj_code]["NAME"],
+                             type_=self.config["OBJECT_INFO"]["OBJECT_CODES"][obj_code]["TYPE"],
                              x=x_pos,
                              y=y_pos,
                              player_code=obj_code[0])
@@ -104,7 +104,7 @@ class Board:
                           x=x_pos,
                           y=y_pos,
                           placed_by=placed_by,
-                          type_=self.config["OBJECT_CODES"][obj_code]["type"])
+                          type_=self.config["OBJECT_INFO"]["OBJECT_CODES"][obj_code]["TYPE"])
 
         return obj
 

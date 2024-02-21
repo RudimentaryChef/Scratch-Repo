@@ -12,6 +12,7 @@ from random import choice
 from random import seed
 from stable_baselines3 import PPO
 from game import unity_socket
+import re
 import pprint
 pp = pprint.PrettyPrinter(indent=2)
 
@@ -28,15 +29,18 @@ class DiceAdventurePythonEnv(Env):
         self.config = self.config = loads(open("game/config.json", "r").read())
         self.reward_codes = self.config["GYM_ENVIRONMENT"]["REWARD"]["CODES"]
         self.observation_object_positions = self.config["GYM_ENVIRONMENT"]["OBSERVATION"]["OBJECT_POSITIONS"]
-        self.object_size_mappings = self.config["OBJECT_INFO"]["OBJECT_SIZE_MAPPINGS"]
+        self.object_size_mappings = self.config["OBJECT_INFO"]["ENEMIES"]["ENEMY_SIZE_MAPPING"]
         self.kwargs = kwargs
-        self.player = player
         self.player_num = 0
-        self.players = {"1S": "Dwarf", "2S": "Giant", "3S": "Human"}
+        self.players = ["Dwarf", "Giant", "Human"]
+        # self.players = {"1S": "Dwarf", "2S": "Giant", "3S": "Human", "Dwarf": "1S", "Giant": "2S", "Human": "3S"}
         self.player_ids = ["1S", "2S", "3S"]
+        # self.player = self.players[player]
+        self.player = player
         self.automate_players = automate_players
 
-        self.masks = {"1S": 1, "2S": 3, "3S": 2}
+        # self.masks = {"1S": 1, "2S": 3, "3S": 2}
+        self.masks = {"Dwarf": 1, "Giant": 3, "Human": 2}
         self.max_mask_radius = max(self.masks.values())
         self.local_mask_radius = self.masks[self.player]
         self.action_map = {0: 'left', 1: 'right', 2: 'up', 3: 'down', 4: 'wait',
@@ -47,7 +51,7 @@ class DiceAdventurePythonEnv(Env):
         self.pin_mapping = {"A": 0, "B": 1, "C": 2, "D": 3}
 
         self.time_steps = 0
-        self.load_threshold = 500000
+        self.load_threshold = 110000
         self.model_number = model_number
         self.model_dir = "train/{}/model/".format(self.model_number)
         self.model = None
@@ -63,7 +67,7 @@ class DiceAdventurePythonEnv(Env):
         ###################
         # METRIC TRACKING #
         ###################
-        self.metrics_dir = "../train/1/metrics"
+        self.metrics_dir = self.config["GYM_ENVIRONMENT"]["METRICS"]["DIRECTORY"].format(model_number)
         makedirs(self.metrics_dir, exist_ok=True)
         self.track_metrics = env_metrics
         self.metrics_save_threshold = 10000
@@ -73,7 +77,7 @@ class DiceAdventurePythonEnv(Env):
 
         # Server type
         self.server = server
-        self.unity_socket_url = "ws://localhost:4649/hmt/{}"
+        self.unity_socket_url = self.config["GYM_ENVIRONMENT"]["UNITY"]["URL"]
 
         if self.server == "local":
             self.create_game()
@@ -93,8 +97,8 @@ class DiceAdventurePythonEnv(Env):
         next_state = self.execute_action(player, game_action)
 
         # pstate_1 = self.get_obj_from_scene_by_type(self.prev_state, self.players[player])
-        pstate_1 = self.get_obj_from_scene_by_type(state, self.players[player])
-        pstate_2 = self.get_obj_from_scene_by_type(next_state, self.players[player])
+        pstate_1 = self.get_obj_from_scene_by_type(state, player)
+        pstate_2 = self.get_obj_from_scene_by_type(next_state, player)
 
         # Determine reward based on change in state
         # reward = self.get_reward(pstate_1, pstate_2, self.prev_state, next_state)
@@ -146,7 +150,7 @@ class DiceAdventurePythonEnv(Env):
         if self.server == "local":
             self.game.execute_action(player, game_action)
         else:
-            url = self.unity_socket_url.format(self.players[player].lower())
+            url = self.unity_socket_url.format(player.lower())
             unity_socket.execute_action(url, game_action)
         return self.get_state()
 
@@ -227,7 +231,7 @@ class DiceAdventurePythonEnv(Env):
             # [timestep, timestamp, player, game, level, reward_type, reward]
             self.rewards_tracker.append([self.time_steps,
                                          datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f'),
-                                         self.players[self.player],
+                                         self.player,
                                          str(self.num_games),
                                          state["content"]["gameData"]["level"],
                                          ",".join(reward_types),
@@ -238,8 +242,8 @@ class DiceAdventurePythonEnv(Env):
     def goal_reached(self, state, next_state):
         # no goal in prev state, goal in next state
         # no goal in either state but next state is new level
-        g1 = self.get_obj_from_scene_by_type(state, "Shrine")
-        g2 = self.get_obj_from_scene_by_type(next_state, "Shrine")
+        g1 = self.get_obj_from_scene_by_type(state, "shrine")
+        g2 = self.get_obj_from_scene_by_type(next_state, "shrine")
 
         # Goal has now been reached since previous state
         # OR goal was not reached in previous state but either:
@@ -315,80 +319,82 @@ class DiceAdventurePythonEnv(Env):
         2. len(self.observation_type_positions) (3)
         3. 4 (4) - max number of object types is 4 [i.e., M4]
         4. six additional state variables
-        Total Est.: 5x5x10x4+6= 1006
+        Total Est.: 7x7x10x4+6= 1006
         :param state:
         :return:
         """
-        x = None
-        y = None
-        p_info = np.array([])
-
         if player is None:
             player = self.player
-
-        for i in state["content"]["scene"]:
-            if i["type"] == self.players[player]:
-                x = i["x"]
-                y = i["y"]
-                p_info = self.parse_player_state_data(i, state["content"]["scene"])
-                break
-        # pp.pprint(state)
+        x, y, player_info = self.parse_player_state_data(state, player)
 
         x_bound_upper = x + self.local_mask_radius
         x_bound_lower = x - self.local_mask_radius
         y_bound_upper = y + self.local_mask_radius
         y_bound_lower = y - self.local_mask_radius
 
-        grid = np.zeros((self.mask_size, self.mask_size, len(self.observation_object_positions), 4))
+        grid = np.zeros((self.mask_size, self.mask_size, len(set(self.observation_object_positions.values())), 4))
         for obj in state["content"]["scene"]:
-            if obj["name"] in self.observation_object_positions and obj["x"] and obj["y"]:
+            if obj["type"] in self.observation_object_positions and obj["x"] and obj["y"]:
                 if x_bound_lower <= obj["x"] <= x_bound_upper and \
                         y_bound_lower <= obj["y"] <= y_bound_upper:
                     other_x = self.local_mask_radius - (x - obj["x"])
                     other_y = self.local_mask_radius - (y - obj["y"])
                     # For pins and enemies, determine which type for version
-                    if obj["type"] == "Pin":
+                    if obj["type"] == "pin":
                         version = self.pin_mapping[obj["name"][1]]
                     # For enemies, determine which type for version
-                    elif obj["name"] in ["Monster", "Trap", "Stone"]:
+                    elif re.match("(monster|trap|stone)", obj["type"].lower()):
+                        # elif obj["name"] in ["Monster", "Trap", "Stone"]:
                         version = self.object_size_mappings[obj["type"].split("_")[0]]
                     # All other objects have one version
                     else:
                         version = 0
-                    grid[other_x][other_y][self.observation_object_positions[obj["name"]]][version] = 1
+                    grid[other_x][other_y][self.observation_object_positions[obj["type"]]][version] = 1
 
-        return np.concatenate((np.ndarray.flatten(grid), np.ndarray.flatten(p_info)))
+        return np.concatenate((np.ndarray.flatten(grid), np.ndarray.flatten(player_info)))
 
     @staticmethod
-    def parse_player_state_data(player_obj, scene):
+    def parse_player_state_data(state, player):
+        # Locate player and their shrine in scene
+        player_obj = None
+        shrine_obj = None
+        for obj in state["content"]["scene"]:
+            if player_obj and shrine_obj:
+                break
+            if obj["type"] == player:
+                player_obj = obj
+            elif obj["type"] == "shrine" and obj.get("character") == player:
+                shrine_obj = obj
+
         state_map = {
-            "actionPoints": {"pos": 0, "map": {}},
-            "health": {"pos": 1, "map": {}},
-            "dead": {"pos": 2, "map": {False: 0, True: 1}},
-            "reached": {"pos": 3, "map": {False: 0, True: 1}},
-            "pinCursorX": {"pos": 4, "map": {None: -1}},
-            "pinCursorY": {"pos": 5, "map": {None: -1}}
+            "actionPoints": 0,
+            "health": 1,
+            "dead": 2,
+            "reached": 3,
+            "pinCursorX": 4,
+            "pinCursorY": 5
         }
-        vector = np.zeros((len(state_map,)))
-        shrine = [i for i in scene if i["type"] == "Shrine" and i["character"] == player_obj["name"]][0]
+        value_map = {True: 1, False: 0, None: 0}
+        player_info = np.zeros((len(state_map,)))
+
         for field in state_map:
             if field == "reached":
-                data = shrine[field]
+                data = shrine_obj[field]
             else:
                 data = player_obj[field]
             # Value should come from mapping
-            if data in state_map[field]["map"]:
-                vector[state_map[field]["pos"]] = state_map[field]["map"][data]
+            if data in [True, False, None]:
+                player_info[state_map[field]] = value_map[data]
             # Otherwise, value is scalar
             else:
-                vector[state_map[field]["pos"]] = data
-        return vector
+                player_info[state_map[field]] = data
+        return player_obj["x"], player_obj["y"], player_info
 
     def save_metrics(self):
         if self.track_metrics:
             # Save rewards logs
             if len(self.rewards_tracker) >= self.metrics_save_threshold:
-                filename = f"{self.metrics_dir}/rewards_over_time_-{self.players[self.player]}-id-{self.id}.txt"
+                filename = f"{self.metrics_dir}/rewards_over_time_-{self.player}-id-{self.id}.txt"
                 with open(filename,
                           "a" if path.exists(filename) else "w") as file:
                     for i in self.rewards_tracker:
@@ -396,11 +402,11 @@ class DiceAdventurePythonEnv(Env):
                 self.rewards_tracker = []
 
 
-def load_model(model_dir, env=None, device=None):
-    model_files = [model_dir + file.rstrip(".zip") for file in listdir(model_dir)]
-    latest = sorted([(file, int(file.split("_")[-1])) for file in model_files], key=lambda x: x[1])[-1]
+def load_model(model_dir, env=None, device=None, tensorboard_log_dir=None):
+    model_file = [model_dir + file.rstrip(".zip") for file in listdir(model_dir)][0]
+    # latest = sorted([(file, int(file.split("_")[-1])) for file in model_files], key=lambda x: x[1])[-1]
     if env or device:
-        model = PPO.load(latest[0], env=env, device=device)
+        model = PPO.load(model_file, env=env, device=device, tensorboard_log=tensorboard_log_dir)
     else:
-        model = PPO.load(latest[0])
+        model = PPO.load(model_file)
     return model

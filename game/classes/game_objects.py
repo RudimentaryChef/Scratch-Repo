@@ -42,8 +42,8 @@ class Enemy(GameObject):
         self.action_points = action_points
 
     def get_dice_roll(self):
-        val = self.dice_rolls["val"]
-        const = self.dice_rolls["const"]
+        val = self.dice_rolls["VAL"]
+        const = self.dice_rolls["CONST"]
         if val > 0:
             roll = choice(range(val))
         else:
@@ -90,8 +90,9 @@ class Player(GameObject):
         self.action_plan_finalized = False
 
     def get_dice_roll(self, enemy_type):
-        val = self.dice_rolls[enemy_type]["val"]
-        const = self.dice_rolls[enemy_type]["const"]
+        enemy_type = enemy_type.upper()
+        val = self.dice_rolls[enemy_type]["VAL"]
+        const = self.dice_rolls[enemy_type]["CONST"]
         if val > 0:
             roll = choice(range(val))
         else:

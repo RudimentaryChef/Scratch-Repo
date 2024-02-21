@@ -19,7 +19,8 @@ NUM_ENV_COPIES = 4
 # Game Params
 AGENT_PLAYER = "Dwarf"  # {Dwarf, Giant, Human}
 ALL_PLAYERS = ["Dwarf", "Giant", "Human"]
-LOAD_MODEL_FROM_FILE = False
+LOAD_MODEL_FROM_FILE = True
+DEVICE = "cuda"
 
 
 def main():
@@ -35,11 +36,11 @@ def main():
     vec_env = SubprocVecEnv(envs)
 
     if LOAD_MODEL_FROM_FILE:
-        model = load_model(model_dir, env=vec_env, device=device)
-    else:
-        model = PPO("MlpPolicy", vec_env, verbose=0, tensorboard_log=tensor_board_log, device=device, n_steps=2048,
-                    batch_size=64)
 
+        model = load_model("train/2/model/", env=vec_env, device=DEVICE, tensorboard_log_dir=TENSORBOARD_LOG_DIR)
+    else:
+        model = PPO("MlpPolicy", vec_env, verbose=0, tensorboard_log=TENSORBOARD_LOG_DIR, device=DEVICE, n_steps=2048,
+                    batch_size=64)
 
     model.learn(total_timesteps=NUM_TIME_STEPS, callback=save_callback, progress_bar=False)
 
@@ -62,7 +63,7 @@ def make_env(env_id: str, player: str, model_number: int):
                                       level_sampling=True,
                                       round_cap=250,
                                       track_metrics=False,
-                                      limit_levels=[1])
+                                      limit_levels=[1, 2])
     set_random_seed(int(env_id))
     return _init
 
@@ -71,7 +72,7 @@ class SaveCallback(BaseCallback, ABC):
     def __init__(self):
         super().__init__()
         self.time_steps = 0
-        self.threshold = 250000
+        self.save_threshold = 100000
         self.logfile_threshold = 10000
         self.model_filename, self.log_filename, self.model_number = self._get_filepaths()
         self.version = 1
@@ -82,14 +83,14 @@ class SaveCallback(BaseCallback, ABC):
         self.time_steps += 1
         self.pbar.update(1)
 
-        if self.time_steps % self.threshold == 0:
+        if self.time_steps % self.save_threshold == 0:
             self._save_model()
         else:
             if self.time_steps % self.logfile_threshold == 0:
                 self._save_logfile()
 
     def _save_model(self):
-        self.model.save(self.model_filename)
+        self.model.save(self.model_filename+"chkpt-{}".format(self.version))
         self._save_logfile()
         self.version += 1
 

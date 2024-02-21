@@ -29,7 +29,8 @@ class DiceAdventure:
         ##############
         # Level Setup
         self.levels = {}
-        self.limit_levels = limit_levels if limit_levels else [int(i) for i in list(self.config["LEVELS"].keys())]
+        self.limit_levels = limit_levels if limit_levels \
+            else [int(i) for i in list(self.config["GAMEPLAY"]["LEVELS"].keys())]
         self.get_levels()
         # Level Control
         self.curr_level_num = level if level in self.limit_levels else self.limit_levels[0]
@@ -42,7 +43,7 @@ class DiceAdventure:
         self.empty = ".."
         self.tower = "**"
         self.wall = "##"
-        self.player_code_mapping = self.config["PLAYER_CODE_MAPPING"]
+        self.player_code_mapping = self.config["OBJECT_INFO"]["PLAYERS"]["PLAYER_CODE_MAPPING"]
 
         # Places a cap on the number of rounds per level
         self.round_cap = round_cap
@@ -62,20 +63,19 @@ class DiceAdventure:
         # PHASE VARS #
         ##############
         self.phase_num = 0
-        self.phases = self.config["PHASES"]["PHASE_LIST"]
+        self.phases = self.config["GAMEPLAY"]["PHASES"]["PHASE_LIST"]
         # Pin Planning
-        self.pinning_phase_name = self.config["PHASES"]["PINNING_PHASE_NAME"]
-        self.valid_pin_actions = self.config["ACTIONS"]["VALID_PIN_ACTIONS"]
-        self.valid_pin_types = self.config["ACTIONS"]["VALID_PIN_TYPES"]
-        self.pin_code_mapping = self.config["OBJECT_INFO"]["Pin"]["code_mapping"]
+        self.pinning_phase_name = self.config["GAMEPLAY"]["PHASES"]["PINNING_PHASE_NAME"]
+        self.valid_pin_actions = self.config["GAMEPLAY"]["ACTIONS"]["VALID_PIN_ACTIONS"]
+        self.valid_pin_types = self.config["GAMEPLAY"]["ACTIONS"]["VALID_PIN_TYPES"]
+        self.pin_code_mapping = self.config["OBJECT_INFO"]["OTHER"]["PIN"]["PIN_CODE_MAPPING"]
         # Action Planning
-        self.planning_phase_name = self.config["PHASES"]["PLANNING_PHASE_NAME"]
-        self.valid_move_actions = self.config["ACTIONS"]["VALID_MOVE_ACTIONS"]
-        self.reverse_actions = self.config["ACTIONS"]["REVERSE_ACTIONS"]
+        self.planning_phase_name = self.config["GAMEPLAY"]["PHASES"]["PLANNING_PHASE_NAME"]
+        self.valid_move_actions = self.config["GAMEPLAY"]["ACTIONS"]["VALID_MOVE_ACTIONS"]
         # Actions
-        self.directions = self.config["ACTIONS"]["DIRECTIONS"]
+        self.directions = self.config["GAMEPLAY"]["ACTIONS"]["DIRECTIONS"]
         # Enemy Execution
-        self.enemy_execution_phase_name = self.config["PHASES"]["ENEMY_EXECUTION_PHASE_NAME"]
+        self.enemy_execution_phase_name = self.config["GAMEPLAY"]["PHASES"]["ENEMY_EXECUTION_PHASE_NAME"]
         #############
         # RENDERING #
         #############
@@ -91,13 +91,16 @@ class DiceAdventure:
         # Number of rounds completed
         self.num_rounds = 0
         # Metrics tracker
-        self.tracker = GameMetricsTracker(self.curr_level_num, model_number)
+        self.tracker = GameMetricsTracker(level=self.curr_level_num,
+                                          metrics_config=self.config["GAMEPLAY"]["METRICS"],
+                                          instance_id=model_number,
+                                          model_number=model_number)
 
     #################
     # LEVEL CONTROL #
     #################
     def get_levels(self):
-        levels = deepcopy(self.config["LEVELS"])
+        levels = deepcopy(self.config["GAMEPLAY"]["LEVELS"])
         # This makes sure positions are indexed with origin at "bottom left"
         self.levels = {
             int(k): [[row[i:i + 2] for i in range(0, len(row), 2)] for row in reversed(v.strip().split("\n"))]
@@ -159,7 +162,7 @@ class DiceAdventure:
             if prev_level == self.curr_level_num:
                 self.tracker.update(target="game", metric_name="num_repeats")
             else:
-                self.tracker.update(target="game", metric_name="new_level")
+                self.tracker.update(target="game", metric_name="new_level", level=self.curr_level_num)
 
     ###########################
     # GET STATE & SEND ACTION #
@@ -189,7 +192,7 @@ class DiceAdventure:
         for pos, obj_dict in self.board.board.items():
             # Walls
             if obj_dict is None:
-                state["content"]["scene"].append({"name": "Wall", "type": "Wall", "x": int(pos[1]), "y": int(pos[0])})
+                state["content"]["scene"].append({"name": "Wall", "type": "wall", "x": int(pos[1]), "y": int(pos[0])})
             else:
                 for o in obj_dict:
                     obj = obj_dict[o]
@@ -201,9 +204,9 @@ class DiceAdventure:
                             "pinCursorX": obj.pin_x,
                             "pinCursorY": obj.pin_y,
                             "sightRange": obj.sight_range,
-                            "monsterDice": f"D{obj.dice_rolls['Monster']['val']}+{obj.dice_rolls['Monster']['const']}",
-                            "trapDice": f"D{obj.dice_rolls['Trap']['val']}+{obj.dice_rolls['Trap']['const']}",
-                            "stoneDice": f"D{obj.dice_rolls['Stone']['val']}+{obj.dice_rolls['Stone']['const']}",
+                            "monsterDice": f"D{obj.dice_rolls['MONSTER']['VAL']}+{obj.dice_rolls['MONSTER']['CONST']}",
+                            "trapDice": f"D{obj.dice_rolls['TRAP']['VAL']}+{obj.dice_rolls['TRAP']['CONST']}",
+                            "stoneDice": f"D{obj.dice_rolls['STONE']['VAL']}+{obj.dice_rolls['STONE']['CONST']}",
                             "health": obj.health,
                             "dead": obj.dead,
                             "actionPoints": obj.action_points,
@@ -224,9 +227,11 @@ class DiceAdventure:
                     elif isinstance(obj, Enemy):
                         ele.update({
                             "name": obj.index,
-                            "actionPoints": self.config["OBJECT_INFO"]["Monster"]["moves"][obj.obj_code[1]],
-                            "combatDice": f"D{obj.dice_rolls['val']}+{obj.dice_rolls['const']}"
+                            "combatDice": f"D{obj.dice_rolls['VAL']}+{obj.dice_rolls['CONST']}"
                         })
+                        # Action points only apply to monsters
+                        if obj.name == "Monster":
+                            ele["actionPoints"] = self.config["OBJECT_INFO"]["OBJECT_CODES"][obj.obj_code]["ACTION_POINTS"]
                     # Pins
                     elif isinstance(obj, Pin):
                         ele.update({
@@ -268,7 +273,7 @@ class DiceAdventure:
         Checks whether players are dead or alive and respawn players if enough game cycles have passed
         :return: N/A
         """
-        dead = [p for p in self.config["PLAYER_CODES"] if self.board.objects[p].dead]
+        dead = [p for p in self.player_code_mapping.values() if self.board.objects[p].dead]
         # If all players have died, reset level
         if len(dead) == 3:
             if self.track_metrics:
@@ -337,7 +342,7 @@ class DiceAdventure:
                 self.board.objects[player].pin_y = self.board.objects[player].y
                 if self.track_metrics:
                     # Track pin placement
-                    self.tracker.update(target="player", level=self.curr_level_num, metric_name="pins",
+                    self.tracker.update(target="player", metric_name="pins",
                                         player=self.board.objects[player].name, pin_type=action)
 
         # If player is out of action points and has placed a pin, they are forced to submit
@@ -401,9 +406,9 @@ class DiceAdventure:
 
         # Need to end pinning phase, place pins, and begin planning phase
         if curr_phase == self.pinning_phase_name and all([self.board.objects[p].pin_finalized
-                                                          for p in self.config["PLAYER_CODES"]
+                                                          for p in self.player_code_mapping.values()
                                                           if not self.board.objects[p].dead]):
-            for p in self.config["PLAYER_CODES"]:
+            for p in self.player_code_mapping.values():
                 # Reset values
                 self.board.objects[p].pin_x = None
                 self.board.objects[p].pin_y = None
@@ -412,7 +417,7 @@ class DiceAdventure:
             self.update_phase()
         elif curr_phase == self.planning_phase_name \
                 and all([self.board.objects[p].action_plan_finalized
-                         for p in self.config["PLAYER_CODES"]
+                         for p in self.player_code_mapping.values()
                          if not self.board.objects[p].dead]):
             # Update phase to player execution
             self.update_phase()
@@ -461,9 +466,9 @@ class DiceAdventure:
         :return: N/A
         """
         # print("EXECUTING PLAYER MOVEMENT")
-        max_moves = max([len(self.board.objects[p].action_plan) for p in self.config["PLAYER_CODES"]])
+        max_moves = max([len(self.board.objects[p].action_plan) for p in self.player_code_mapping.values()])
         for i in range(max_moves):
-            for p in self.config["PLAYER_CODES"]:
+            for p in self.player_code_mapping.values():
                 # If player is alive, can move
                 if not self.board.objects[p].dead and i < len(self.board.objects[p].action_plan):
                     # Get action to make and move
@@ -482,7 +487,7 @@ class DiceAdventure:
                         self.board.objects[self.tower].subgoal_count += 1
                     # Check if player has reached tower
                     if self.board.at(p, self.tower) and \
-                            all([self.board.objects[p].goal_reached for i in self.config["PLAYER_CODES"]]):
+                            all([self.board.objects[p].goal_reached for i in self.player_code_mapping.values()]):
                         # self.update_phase()
                         return True
             # CHECK IF PLAYER AND MONSTER/TRAP/STONE IN SAME AREA AFTER
@@ -559,7 +564,8 @@ class DiceAdventure:
         """
         # Gets location of all players. If multiple players end up on the same grid square, using a set will ensure
         # spot is only checked once for combat
-        player_loc = set([(self.board.objects[p].y, self.board.objects[p].x) for p in self.config["PLAYER_CODES"]])
+        player_loc = set([(self.board.objects[p].y, self.board.objects[p].x)
+                          for p in self.player_code_mapping.values()])
         # For each location where player is present, check if there are enemies. If so, initiate combat
         for loc in player_loc:
             players = [obj for obj in self.board.board[loc].values() if isinstance(obj, Player)]
