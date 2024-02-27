@@ -1,6 +1,7 @@
 from stable_baselines3 import PPO
-from ..game.dice_adventure_python_env import DiceAdventurePythonEnv
+from game.dice_adventure_python_env import DiceAdventurePythonEnv
 from time import sleep
+from json import dumps
 
 
 def main2():
@@ -29,12 +30,14 @@ def main():
                            5: 'submit', 6: 'pinga', 7: 'pingb', 8: 'pingc', 9: 'pingd', 10: 'undo'}
     action_map_rev = {v: k for k, v in action_map.items()}
 
-    model_filename = "../train/2/model/dice_adventure_ppo_model.zip"
+    model_filename = "train/2/model/dice_adventure_ppo_model.zip"
     model = PPO.load(model_filename)
 
-    player = "1S"
+    player = "Dwarf"
     env = get_env(player, model_filename)
     env.load_threshold = 1
+    # state = env.get_state()
+
     obs = env.reset()[0]
     while True:
         action, _states = model.predict(obs)
@@ -53,6 +56,7 @@ def get_env(init_player, model_dir):
     return DiceAdventurePythonEnv(id_=0,
                              level=1,
                              player=init_player,
+                             model_number=2,
                              model_dir=model_dir,
                              server="unity",
                              automate_players=True
