@@ -18,7 +18,7 @@ pp = pprint.PrettyPrinter(indent=2)
 
 
 class DiceAdventurePythonEnv(Env):
-    def __init__(self, id_, player, model_number, env_metrics=False, server="local", automate_players=True,
+    def __init__(self, id_, player, model_number, env_metrics=False, server="local", automate_players=True, random_players=False,
                  set_random_seed=False, **kwargs):
         self.id = id_
         print(f"INITIALIZING ENV {self.id}...")
@@ -38,6 +38,7 @@ class DiceAdventurePythonEnv(Env):
         # self.player = self.players[player]
         self.player = player
         self.automate_players = automate_players
+        self.random_players = random_players
 
         # self.masks = {"1S": 1, "2S": 3, "3S": 2}
         self.masks = {"Dwarf": 1, "Giant": 3, "Human": 2}
@@ -61,7 +62,7 @@ class DiceAdventurePythonEnv(Env):
         # The observation will be the coordinate of the agent
         # this can be described both by Discrete and Box space
         self.mask_size = self.max_mask_radius * 2 + 1
-        vector_len = (self.mask_size * self.mask_size * len(self.observation_object_positions) * 4) + 6
+        vector_len = (self.mask_size * self.mask_size * len(set(self.observation_object_positions.values())) * 4) + 6
         self.observation_space = spaces.Box(low=-5, high=100,
                                             shape=(vector_len,), dtype=np.float32)
         ###################
@@ -171,7 +172,7 @@ class DiceAdventurePythonEnv(Env):
                 if game_action == "submit" \
                         and state["content"]["gameData"]["currentPhase"] == next_state["content"]["gameData"]["currentPhase"]:
                     a = game_action
-                elif self.model:
+                elif self.model and not self.random_players:
                     a, _states = self.model.predict(self.get_observation(next_state, player=p))
                     # Need to convert to python int
                     a = self.action_map[int(a)]
@@ -403,10 +404,10 @@ class DiceAdventurePythonEnv(Env):
 
 
 def load_model(model_dir, env=None, device=None, tensorboard_log_dir=None):
-    model_file = [model_dir + file.rstrip(".zip") for file in listdir(model_dir)][0]
-    # latest = sorted([(file, int(file.split("_")[-1])) for file in model_files], key=lambda x: x[1])[-1]
+    model_files = [model_dir + file.rstrip(".zip") for file in listdir(model_dir)]
+    latest = sorted([(file, int(file.split("-")[-1])) for file in model_files], key=lambda x: x[1])[-1]
     if env or device:
-        model = PPO.load(model_file, env=env, device=device, tensorboard_log=tensorboard_log_dir)
+        model = PPO.load(latest[0], env=env, device=device, tensorboard_log=tensorboard_log_dir)
     else:
-        model = PPO.load(model_file)
-    return model
+        model = PPO.load(latest[0])
+    return model, latest[1]
