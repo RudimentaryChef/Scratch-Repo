@@ -1,8 +1,8 @@
 from copy import deepcopy
 from json import loads
-from game.classes.board import Board
-from game.classes.game_objects import *
-from game.classes.metrics_tracker import GameMetricsTracker
+from classes.board import Board
+from classes.game_objects import *
+from classes.metrics_tracker import GameMetricsTracker
 
 
 class DiceAdventure:
@@ -21,7 +21,7 @@ class DiceAdventure:
         #################
         # GAME METADATA #
         #################
-        self.config = loads(open("game/config.json", "r").read())
+        self.config = loads(open("config/main_config.json", "r").read())
         self.terminated = False
 
         ##############

@@ -1,9 +1,11 @@
+import os
 from collections import Counter
 from collections import defaultdict
 from datetime import datetime
 from dateutil.parser import parse
 from os import makedirs
 from os import path
+from time import sleep
 from time import time
 import tensorflow as tf
 
@@ -38,9 +40,8 @@ class GameMetricsTracker:
         # Time series counter
         self.metric_counter = Counter()
         self.metrics_dir = self.metrics_config["DIRECTORIES"]["LOGFILES"].format(self.model_number)
-        makedirs(self.metrics_dir, exist_ok=True)
         self.tb_dir = self.metrics_config["DIRECTORIES"]["TENSORBOARD"]
-        self.tf_writer = tf.summary.create_file_writer(self.tb_dir)
+        self._setup_directories()
 
     def save(self):
         print("SAVING!")
@@ -48,41 +49,43 @@ class GameMetricsTracker:
         # GAME LEVEL #
         ##############
         # Levels
-        for level in self.levels:
-            print(self.levels.keys())
-            self._save_records(records=self.levels[level], component="GAME",
-                               metric="LEVEL", metric_counter_name=f"LEVEL{level}", params=[level],
-                               graph_name=self.metrics_config["GAME"]["LEVEL"]["GRAPH_NAME"].format(level),
-                               metric_index=-1)
+        self._save_level_metrics()
 
         self._reset()
 
-    def _get_filepath(self, component, metric, params=None):
+    def _setup_directories(self):
+        makedirs(self.metrics_dir, exist_ok=True)
+        for metric in self.metrics_config["GAME"]:
+            makedirs(self.metrics_config["GAME"][metric]["SUBDIRECTORY"], exist_ok=True)
+
+    def _get_filepath(self, component, metric, params=None, additional_info=""):
         if params is None:
             params = []
-        return self.metrics_dir + \
-            self.metrics_config[component][metric]["FILENAME"].format(*params) + \
+        if not isinstance(params, list):
+            params = [params]
+        return self.metrics_dir + self.metrics_config[component][metric]["SUBDIRECTORY"] + \
+            self.metrics_config[component][metric]["FILENAME"].format(*params) + additional_info + \
             self.metrics_config["EXTENSION"].format(self.id)
 
-    def _save_records(self, records, component, metric, metric_counter_name,
-                      params, graph_name=None, metric_index=None):
-        filepath = self._get_filepath(component, metric, params)
+    def _save_level_metrics(self, component="GAME", metric="LEVEL"):
+        for level in self.levels:
+            graph_name = self.metrics_config[component][metric]["GRAPH_NAME"].format(level)
+            filepath = self._get_filepath(component, metric, params=level, additional_info="--gn-{}".format(graph_name))
+            columns = self.metrics_config[component][metric]["COLUMNS"]
+            self._save_records(records=self.levels[level], columns=columns, filepath=filepath)
 
+    @staticmethod
+    def _save_records(records, columns, filepath):
         mode = "a" if path.exists(filepath) else "w"
         with open(filepath, mode) as file:
             # Need to write columns if first time
             if mode == "w":
-                file.write("\t".join(self.metrics_config[component][metric]["COLUMNS"])+"\n")
+                file.write("\t".join(columns)+"\n")
             for rec in records:
-                self.metric_counter[metric_counter_name] += 1
+                # self.metric_counter[metric_counter_name] += 1
 
                 file.write("\t".join([str(i) for i in rec])+"\n")
-                if graph_name:
-                    with self.tf_writer.as_default():
-                        tf.summary.scalar(name=graph_name,
-                                          data=float(rec[metric_index]),
-                                          step=self.metric_counter[metric])
-                    self.tf_writer.flush()
+
 
     def _reset(self):
         self.levels = defaultdict(list)
@@ -128,16 +131,18 @@ class GameMetricsTracker:
             print("LEVEL HAS CHANGED!")
             print(F"level is: {self.level}")
             # Track time to complete last level
+            elapsed_time = (self._timestamp(as_string=False) - self.level_start)
             self.levels[self.level].append([timestamp, self.level, self.repeat_counter[self.level],
-                                            (self._timestamp(as_string=False) - self.level_start).seconds])
+                                            elapsed_time.total_seconds()])
             # Update level
             self.level = level
             self.level_start = self._timestamp(as_string=False)
             self.repeat_counter[self.level] += 1
         elif metric_name == "num_repeats":
             # Track time to complete last level
+            elapsed_time = (self._timestamp(as_string=False) - self.level_start)
             self.levels[self.level].append([timestamp, self.level, self.repeat_counter[self.level],
-                                            (self._timestamp(as_string=False) - self.level_start).seconds])
+                                            elapsed_time.total_seconds()])
 
             self.repeat_counter[self.level] += 1
             self.level_start = self._timestamp(as_string=False)
@@ -201,6 +206,44 @@ class PlayerMetricsTracker:
         return {"Monster": {"S": [], "M": [], "L": [], "XL": []},
                 "Stone": {"S": [], "M": [], "L": []},
                 "Trap": {"S": [], "M": [], "L": []}}
+
+
+class TensorBoardWriter:
+    def __init__(self, metrics_config, model_number):
+        self.metrics_config = metrics_config
+        self.model_number = model_number
+
+        self.metrics_dir = self.metrics_config["DIRECTORIES"]["LOGFILES"].format(self.model_number)
+        self.tb_dir = self.metrics_config["DIRECTORIES"]["TENSORBOARD"]
+        # TB Logger
+        self.tf_writer = tf.summary.create_file_writer(self.tb_dir)
+        self.metric_counter = Counter()
+        self.logger()
+
+    def logger(self):
+        dirs = [self.metrics_dir + dir_ for dir_ in os.listdir(self.metrics_dir)]
+        with self.tf_writer.as_default():
+            while True:
+                for d in dirs:
+                    files = [d + file for file in os.listdir(d)]
+                    for file in files:
+                        graph_name = file.split("-")[-2]
+                        num_cols = None
+                        with open(file, "r") as logfile:
+                            for line in logfile:
+                                line = line.split("\t")
+                                if not num_cols:
+                                    num_cols = len(line)
+                                # This is an incomplete line
+                                if len(line) < num_cols:
+                                    break
+
+                        #tf.summary.scalar(name=graph_name,
+                                          #data=float(line[self.metrics_config[]]),
+                                          #step=self.metric_counter[metric])
+                        self.tf_writer.flush()
+                sleep(1)
+
 
 
 

@@ -24,7 +24,9 @@
 		"LEVEL": {
 		  "COLUMNS": ["timestamp", "level", "number_repeats", "time_to_complete"],
 		  "FILENAME": "Level-{}-Metrics",
-		  "GRAPH_NAME": "time_to_complete_level_{}"
+		  "GRAPH_NAME": "time_to_complete_level_{}",
+		  "SUBDIRECTORY": "level/",
+		  "METRIC_INDEX": 3
 		}
 	  },
 	  "PLAYER": {

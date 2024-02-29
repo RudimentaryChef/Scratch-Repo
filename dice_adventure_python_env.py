@@ -1,6 +1,6 @@
 from copy import deepcopy
 from datetime import datetime
-from game.dice_adventure import DiceAdventure
+from dice_adventure import DiceAdventure
 from gymnasium import Env
 from gymnasium import spaces
 from json import loads
@@ -11,22 +11,31 @@ from os import path
 from random import choice
 from random import seed
 from stable_baselines3 import PPO
-from game import unity_socket
+import unity_socket
 import re
 import pprint
 pp = pprint.PrettyPrinter(indent=2)
 
 
 class DiceAdventurePythonEnv(Env):
-    def __init__(self, id_, player, model_number, env_metrics=False, server="local", automate_players=True, random_players=False,
-                 set_random_seed=False, **kwargs):
+    def __init__(self, id_,
+                 player,
+                 model_number,
+                 env_metrics=False,
+                 train_mode=False,
+                 server="local",
+                 observation_type="vector",
+                 automate_players=True,
+                 random_players=False,
+                 set_random_seed=False,
+                 **kwargs):
         self.id = id_
         print(f"INITIALIZING ENV {self.id}...")
         if set_random_seed:
             seed(self.id)
 
         self.game = None
-        self.config = self.config = loads(open("game/config.json", "r").read())
+        self.config = self.config = loads(open("config/main_config.json", "r").read())
         self.reward_codes = self.config["GYM_ENVIRONMENT"]["REWARD"]["CODES"]
         self.observation_object_positions = self.config["GYM_ENVIRONMENT"]["OBSERVATION"]["OBJECT_POSITIONS"]
         self.object_size_mappings = self.config["OBJECT_INFO"]["ENEMIES"]["ENEMY_SIZE_MAPPING"]
@@ -56,6 +65,16 @@ class DiceAdventurePythonEnv(Env):
         self.model_number = model_number
         self.model_dir = "train/{}/model/".format(self.model_number)
         self.model = None
+
+        ##################
+        # TRAIN SETTINGS #
+        ##################
+
+        self.train_mode = train_mode
+
+        ################
+        # ENV SETTINGS #
+        ################
 
         num_actions = len(self.action_map)
         self.action_space = spaces.Discrete(num_actions)
@@ -163,6 +182,10 @@ class DiceAdventurePythonEnv(Env):
             state = unity_socket.get_state(url)
         return state
 
+    ###########
+    # HELPERS #
+    ###########
+
     def play_others(self, game_action, state, next_state):
         # Play as other players
         for p in self.players:
@@ -185,7 +208,7 @@ class DiceAdventurePythonEnv(Env):
     def check_for_new_model(self):
         if self.automate_players:
             if self.time_steps % self.load_threshold == 0:
-                self.model = load_model(self.model_dir)
+                self.model, _ = load_model(self.model_dir)
 
     def create_game(self):
         self.kwargs["model_number"] = self.model_number
