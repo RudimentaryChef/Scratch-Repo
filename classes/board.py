@@ -3,7 +3,7 @@ from collections import defaultdict
 from random import shuffle
 import re
 from tabulate import tabulate
-from game.classes.game_objects import *
+from classes.game_objects import *
 
 
 class Board:

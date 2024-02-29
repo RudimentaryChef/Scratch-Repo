@@ -16,9 +16,8 @@
 	"METRICS": {
 	  "DIRECTORIES": {
 		"LOGFILES": "train/{}/metrics/gameplay/",
-		"TENSORBOARD": "monitoring/dice_adventure_tensorboard/game"
+		"TENSORBOARD": "monitoring/dice_adventure_tensorboard/{}"
 	  },
-	  
 	  "EXTENSION": "-id{}.log",
 	  "GAME": {
 		"LEVEL": {
@@ -30,7 +29,8 @@
 		}
 	  },
 	  "PLAYER": {
-	  }
+	  },
+	  "TB_LOGGER_REFRESH_RATE": 15
 	},
 	"PHASES": {
 	  "PINNING_PHASE_NAME": "Player_Pinning",
@@ -109,7 +109,8 @@
 	  "CODES": {
 		"0": "Personal Goal Reached",
 		"1": "New Level/Tower Reached",
-		"2": "Health Lost/Dead"
+		"2": "Health Lost/Dead",
+		"3": "Has Not Moved"
 	  }
 	},
 	"OBSERVATION": {
@@ -134,7 +135,7 @@
 	  }
 	},
 	"METRICS": {
-	  "DIRECTORY": "../train/{}/metrics/env/"
+	  "DIRECTORY": "train/{}/metrics/env/"
 	},
 	"UNITY": {
 	  "URL": "ws://localhost:4649/hmt/{}"

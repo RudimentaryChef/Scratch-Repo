@@ -21,7 +21,7 @@ class DiceAdventure:
         #################
         # GAME METADATA #
         #################
-        self.config = loads(open("config/main_config.json", "r").read())
+        self.config = loads(open("game/config/main_config.json", "r").read())
         self.terminated = False
 
         ##############
@@ -115,6 +115,7 @@ class DiceAdventure:
         """
         # Don't change anything if restarting level due to whole team dying
         if not self.restart_on_team_loss:
+            # print(self.lvl_repeats)
             eligible_levels = [k for k, v in self.lvl_repeats.items() if v >= 0]
             if not eligible_levels:
                 self.terminated = True

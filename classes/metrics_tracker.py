@@ -8,6 +8,7 @@ from os import path
 from time import sleep
 from time import time
 import tensorflow as tf
+from threading import Thread
 
 
 class GameMetricsTracker:
@@ -43,8 +44,10 @@ class GameMetricsTracker:
         self.tb_dir = self.metrics_config["DIRECTORIES"]["TENSORBOARD"]
         self._setup_directories()
 
+        # Start tensorboard writer
+        TensorBoardWriter(metrics_config=self.metrics_config, model_number=self.model_number)
+
     def save(self):
-        print("SAVING!")
         ##############
         # GAME LEVEL #
         ##############
@@ -56,7 +59,7 @@ class GameMetricsTracker:
     def _setup_directories(self):
         makedirs(self.metrics_dir, exist_ok=True)
         for metric in self.metrics_config["GAME"]:
-            makedirs(self.metrics_config["GAME"][metric]["SUBDIRECTORY"], exist_ok=True)
+            makedirs(self.metrics_dir + self.metrics_config["GAME"][metric]["SUBDIRECTORY"], exist_ok=True)
 
     def _get_filepath(self, component, metric, params=None, additional_info=""):
         if params is None:
@@ -70,7 +73,7 @@ class GameMetricsTracker:
     def _save_level_metrics(self, component="GAME", metric="LEVEL"):
         for level in self.levels:
             graph_name = self.metrics_config[component][metric]["GRAPH_NAME"].format(level)
-            filepath = self._get_filepath(component, metric, params=level, additional_info="--gn-{}".format(graph_name))
+            filepath = self._get_filepath(component, metric, params=level, additional_info="-gn-{}".format(graph_name))
             columns = self.metrics_config[component][metric]["COLUMNS"]
             self._save_records(records=self.levels[level], columns=columns, filepath=filepath)
 
@@ -85,7 +88,6 @@ class GameMetricsTracker:
                 # self.metric_counter[metric_counter_name] += 1
 
                 file.write("\t".join([str(i) for i in rec])+"\n")
-
 
     def _reset(self):
         self.levels = defaultdict(list)
@@ -214,35 +216,52 @@ class TensorBoardWriter:
         self.model_number = model_number
 
         self.metrics_dir = self.metrics_config["DIRECTORIES"]["LOGFILES"].format(self.model_number)
-        self.tb_dir = self.metrics_config["DIRECTORIES"]["TENSORBOARD"]
+        self.tb_dir = self.metrics_config["DIRECTORIES"]["TENSORBOARD"].format(self.model_number)
         # TB Logger
-        self.tf_writer = tf.summary.create_file_writer(self.tb_dir)
-        self.metric_counter = Counter()
-        self.logger()
+        # self.tf_writer = tf.summary.create_file_writer(self.tb_dir)
+        # self.metric_counter = Counter()
+        # self.record_offset = Counter()
 
-    def logger(self):
-        dirs = [self.metrics_dir + dir_ for dir_ in os.listdir(self.metrics_dir)]
-        with self.tf_writer.as_default():
+        logging_thread = Thread(target=self.logger, args=(self.metrics_dir, self.tb_dir,
+                                                          self.metrics_config["TB_LOGGER_REFRESH_RATE"]))
+        logging_thread.start()
+
+    @staticmethod
+    def logger(metrics_dir, tb_dir, refresh_rate):
+        tf_writer = tf.summary.create_file_writer(tb_dir, flush_millis=30000)
+        metric_counter = Counter()
+
+        dirs = [metrics_dir + dir_ for dir_ in os.listdir(metrics_dir)]
+        with tf_writer.as_default():
             while True:
+                sleep(refresh_rate)
                 for d in dirs:
-                    files = [d + file for file in os.listdir(d)]
+                    files = [d + "/" + file for file in os.listdir(d)]
                     for file in files:
                         graph_name = file.split("-")[-2]
                         num_cols = None
                         with open(file, "r") as logfile:
+                            c = 0
                             for line in logfile:
+                                # Don't reread records already written to tensorboard
+                                if c < metric_counter[graph_name]:
+                                    c += 1
+                                    continue
+
                                 line = line.split("\t")
                                 if not num_cols:
                                     num_cols = len(line)
-                                # This is an incomplete line
+                                # This is an incomplete line, so finish reading file
                                 if len(line) < num_cols:
                                     break
+                                if c > 0:
+                                    tf.summary.scalar(name="{}/{}".format(d.split("/")[-1], graph_name),
+                                                      data=float(line[-1]),
+                                                      step=metric_counter[graph_name])
+                                    metric_counter[graph_name] += 1
+                                c += 1
+                        tf_writer.flush()
 
-                        #tf.summary.scalar(name=graph_name,
-                                          #data=float(line[self.metrics_config[]]),
-                                          #step=self.metric_counter[metric])
-                        self.tf_writer.flush()
-                sleep(1)
 
 
 

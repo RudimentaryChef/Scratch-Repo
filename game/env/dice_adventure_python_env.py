@@ -1,6 +1,9 @@
+from game.dice_adventure import DiceAdventure
+import game.env.rewards as rewards
+import game.env.unity_socket as unity_socket
+
 from copy import deepcopy
 from datetime import datetime
-from dice_adventure import DiceAdventure
 from gymnasium import Env
 from gymnasium import spaces
 from json import loads
@@ -11,7 +14,6 @@ from os import path
 from random import choice
 from random import seed
 from stable_baselines3 import PPO
-import unity_socket
 import re
 import pprint
 pp = pprint.PrettyPrinter(indent=2)
@@ -35,7 +37,7 @@ class DiceAdventurePythonEnv(Env):
             seed(self.id)
 
         self.game = None
-        self.config = self.config = loads(open("config/main_config.json", "r").read())
+        self.config = self.config = loads(open("game/config/main_config.json", "r").read())
         self.reward_codes = self.config["GYM_ENVIRONMENT"]["REWARD"]["CODES"]
         self.observation_object_positions = self.config["GYM_ENVIRONMENT"]["OBSERVATION"]["OBJECT_POSITIONS"]
         self.object_size_mappings = self.config["OBJECT_INFO"]["ENEMIES"]["ENEMY_SIZE_MAPPING"]
@@ -61,9 +63,9 @@ class DiceAdventurePythonEnv(Env):
         self.pin_mapping = {"A": 0, "B": 1, "C": 2, "D": 3}
 
         self.time_steps = 0
-        self.load_threshold = 110000
         self.model_number = model_number
         self.model_dir = "train/{}/model/".format(self.model_number)
+        self.model_file = None
         self.model = None
 
         ##################
@@ -99,17 +101,15 @@ class DiceAdventurePythonEnv(Env):
         self.server = server
         self.unity_socket_url = self.config["GYM_ENVIRONMENT"]["UNITY"]["URL"]
 
-        if self.server == "local":
-            self.create_game()
-        self.prev_observed_state = self.get_state()
+        #if self.server == "local":
+        #    self.create_game()
+        self.prev_observed_state = None
 
     def step(self, action, player=None):
         if player is None:
             player = self.player
         action = int(action)
         self.time_steps += 1
-        # Update model for use by other players
-        self.check_for_new_model()
 
         state = self.get_state()
         # Execute action and get next state
@@ -164,6 +164,7 @@ class DiceAdventurePythonEnv(Env):
         else:
             state = self.get_state()
             obs = self.get_observation(state)
+        self.prev_observed_state = deepcopy(state)
         return obs, {}
 
     def execute_action(self, player, game_action):
@@ -195,7 +196,8 @@ class DiceAdventurePythonEnv(Env):
                 if game_action == "submit" \
                         and state["content"]["gameData"]["currentPhase"] == next_state["content"]["gameData"]["currentPhase"]:
                     a = game_action
-                elif self.model and not self.random_players:
+                elif not self.random_players:
+                    self.load_model()
                     a, _states = self.model.predict(self.get_observation(next_state, player=p))
                     # Need to convert to python int
                     a = self.action_map[int(a)]
@@ -204,11 +206,6 @@ class DiceAdventurePythonEnv(Env):
                 # print(f"Other Player: {p}: Action: {a}")
                 _ = self.execute_action(p, a)
                 # next_state = self.get_state()
-
-    def check_for_new_model(self):
-        if self.automate_players:
-            if self.time_steps % self.load_threshold == 0:
-                self.model, _ = load_model(self.model_dir)
 
     def create_game(self):
         self.kwargs["model_number"] = self.model_number
@@ -226,18 +223,20 @@ class DiceAdventurePythonEnv(Env):
         4. Player placing pin on object (0.1) - TODO
 
         Penalties:
-        1. Player losing health (-1.0)
-        2.
+        1. Player losing health (-0.2)
+        2. Player not moving (-0.1)
         """
         r = 0
         reward_types = []
 
         # Player getting goal
-        if self.goal_reached(state, next_state):
+        g1 = self.get_obj_from_scene_by_type(state, "shrine")
+        g2 = self.get_obj_from_scene_by_type(next_state, "shrine")
+        if rewards.goal_reached(g1, g2, state, next_state):
             reward_types.append(self.reward_codes["0"])
             r += 1
         # Players getting to tower after getting all goals
-        if self.check_new_level(state, next_state):
+        if rewards.check_new_level(state, next_state):
             reward_types.append(self.reward_codes["1"])
             r += 1
         # Player winning combat
@@ -247,8 +246,13 @@ class DiceAdventurePythonEnv(Env):
         # if self.check_pin_placement(p2, next_state):
         #     r += .1
         # Player losing health
-        if self.health_lost_or_dead(p1, p2):
+        if rewards.health_lost_or_dead(p1, p2):
             reward_types.append(self.reward_codes["2"])
+            r -= .2
+
+        # Player not moving
+        if not rewards.has_moved(p1, p2):
+            reward_types.append(self.reward_codes["3"])
             r -= .1
 
         if self.track_metrics:
@@ -263,67 +267,6 @@ class DiceAdventurePythonEnv(Env):
                                          ])
         return r
 
-    def goal_reached(self, state, next_state):
-        # no goal in prev state, goal in next state
-        # no goal in either state but next state is new level
-        g1 = self.get_obj_from_scene_by_type(state, "shrine")
-        g2 = self.get_obj_from_scene_by_type(next_state, "shrine")
-
-        # Goal has now been reached since previous state
-        # OR goal was not reached in previous state but either:
-        # 1. level has changed meaning it would have been reached, OR
-        # 2. The level is the same but has repeated, indicated by the num_repeats field incrementing
-        # Repeating in this way does not apply to team losses and level resets
-        return (not g1["reached"] and g2["reached"]) \
-            or (not g1["reached"]
-                and (state["content"]["gameData"]["level"] != next_state["content"]["gameData"]["level"]
-                     or state["content"]["gameData"]["num_repeats"] < next_state["content"]["gameData"]["num_repeats"]))
-
-    @staticmethod
-    def check_new_level(state, next_state):
-        return state["content"]["gameData"]["level"] != next_state["content"]["gameData"]["level"]
-        #or \
-        #    (self.prev_state["content"]["gameData"]["level"] == next_state["content"]["gameData"]["level"] and
-        #     self.prev_state["content"]["gameData"]["num_repeats"] < next_state["content"]["gameData"]["num_repeats"])
-
-    @staticmethod
-    def check_pin_placement(p1, p2, next_state):
-        x = p2["pinCursorX"]
-        y = p2["pinCursorY"]
-        # No pin placed
-        if x is None or y is None:
-            return False
-
-        for obj in next_state["content"]["scene"]:
-            # Pin was placed on object
-            if x == obj["x"] and y == obj["y"]:
-                # This check avoids giving repeated awards for placing pin. The reward should only be given once
-                # Check that the location of the pin cursor from one state to the next has changed
-                if p1["pinCursorX"] != p2["pinCursorX"] and p1["pinCursorY"] != p2["pinCursorY"]:
-                    return True
-        return False
-
-    def check_combat_outcome(self):
-        """
-        Checks the outcome of a combat event. Because combat is triggered while
-        players move, the resulting state of the final action plan being submitted
-        may include combat during player movement or enemy movement. Thus, this function
-        will check the previous and next states and use the following criteria to determine
-        combat outcome. Note, during this period it is possible the player has won and lost
-        combat multiple times.
-            1. Need to figure this out.
-        :return:
-        """
-        pass
-
-    @staticmethod
-    def health_lost_or_dead(p1, p2):
-        """
-        Checks difference between previous and next state to determine if a player has lost health or died
-        :param next_state: The state resulting from the previous action
-        :return: True if a player has lost health or died, False otherwise
-        """
-        return (p1["health"] < p2["health"]) or p2["dead"]  # or (not p1["dead"] and p2["dead"])
 
     @staticmethod
     def get_obj_from_scene_by_type(state, obj_type):
@@ -425,12 +368,8 @@ class DiceAdventurePythonEnv(Env):
                         file.write("\t".join([str(ele) for ele in i])+"\n")
                 self.rewards_tracker = []
 
-
-def load_model(model_dir, env=None, device=None, tensorboard_log_dir=None):
-    model_files = [model_dir + file.rstrip(".zip") for file in listdir(model_dir)]
-    latest = sorted([(file, int(file.split("-")[-1])) for file in model_files], key=lambda x: x[1])[-1]
-    if env or device:
-        model = PPO.load(latest[0], env=env, device=device, tensorboard_log=tensorboard_log_dir)
-    else:
-        model = PPO.load(latest[0])
-    return model, latest[1]
+    def load_model(self):
+        model_files = [self.model_dir + file.rstrip(".zip") for file in listdir(self.model_dir)]
+        latest = sorted([(file, int(file.split("-")[-1])) for file in model_files], key=lambda x: x[1])[-1]
+        if latest != self.model_file:
+            self.model = PPO.load(latest[0])
