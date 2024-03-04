@@ -85,3 +85,5 @@ def health_lost_or_dead(p1, p2):
     :return: True if a player has lost health or died, False otherwise
     """
     return (p1["health"] < p2["health"]) or p2["dead"]  # or (not p1["dead"] and p2["dead"])
+def killed_enemy(p1,p2):
+    return False
