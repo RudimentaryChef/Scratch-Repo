@@ -85,8 +85,23 @@ def health_lost_or_dead(p1, p2):
     :return: True if a player has lost health or died, False otherwise
     """
     return (p1["health"] < p2["health"]) or p2["dead"]  # or (not p1["dead"] and p2["dead"])
-def killed_enemy(p1,p2):
-    enemies1 = {}
-    enemies2 = {}
-    return False
-
+def enemy_reduced(p1,p2):
+    """
+    Checks if there are less enemies in the next state compared to previous state
+    :param p1: The json file for the first scene
+    :param p2: The json file for the second scene
+    :return: True if there are less enemies now, false otherwise
+    """
+    enemies1 = count_number_in_scene(p1, "Monster")
+    enemies2 = count_number_in_scene(p2, "Monster")
+    if(enemies1 > enemies2):
+        return True
+def count_number_in_scene(json_data, entity):
+    """
+    Helper method to count the number of an entity in the scene
+    :param json_data: The json file for the first scene
+    :param entity: The json file for the second scene
+    :return: True if there are less enemies now, false otherwise
+    """
+    entity = {entity for entity in json_data['content']['scene'] if entity['type'].contains(entity)}
+    return len(entity)
