@@ -100,8 +100,8 @@ def count_number_in_scene(json_data, entity):
     """
     Helper method to count the number of an entity in the scene
     :param json_data: The json file for the first scene
-    :param entity: The json file for the second scene
-    :return: True if there are less enemies now, false otherwise
+    :param entity: A tag inside the entity type that we want to count
+    :return: integer length of entity count
     """
     entity = {entity for entity in json_data['content']['scene'] if entity['type'].contains(entity)}
     return len(entity)
