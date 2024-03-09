@@ -92,6 +92,7 @@ def enemy_reduced(p1,p2):
     :param p2: The json file for the second scene
     :return: True if there are less enemies now, false otherwise
     """
+    #Pending approval
     enemies1 = count_number_in_scene(p1, "Monster")
     enemies2 = count_number_in_scene(p2, "Monster")
     if(enemies1 > enemies2):
